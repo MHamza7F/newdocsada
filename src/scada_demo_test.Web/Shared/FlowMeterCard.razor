@@ -1,0 +1,33 @@
+@* One reusable card - the SAME markup renders all 6 meters via a loop in
+   Index.razor. Add a 7th meter later and this file never changes. *@
+
+<div class="meter-card">
+    <div class="meter-card-header">
+        <span class="meter-name">@DeviceName</span>
+        <span class="status-pill @(IsOnline ? "online" : "offline")">
+            <span class="status-dot"></span>@(IsOnline ? "Online" : "Offline")
+        </span>
+    </div>
+
+    <div class="meter-reading">
+        <div class="meter-value">@FlowRate.ToString("0.0")<span class="meter-unit">@FlowUnit</span></div>
+        <div class="meter-label">Flow Rate</div>
+    </div>
+
+    <div class="meter-reading secondary">
+        <div class="meter-value-sm">@Totalizer.ToString("0.0")<span class="meter-unit">@TotalizerUnit</span></div>
+        <div class="meter-label">Totalizer</div>
+    </div>
+
+    <button class="btn-report" @onclick="OnGenerateReport">📄 Generate PDF Report</button>
+</div>
+
+@code {
+    [Parameter] public string DeviceName { get; set; } = string.Empty;
+    [Parameter] public bool IsOnline { get; set; }
+    [Parameter] public double FlowRate { get; set; }
+    [Parameter] public string FlowUnit { get; set; } = string.Empty;
+    [Parameter] public double Totalizer { get; set; }
+    [Parameter] public string TotalizerUnit { get; set; } = string.Empty;
+    [Parameter] public EventCallback OnGenerateReport { get; set; }
+}

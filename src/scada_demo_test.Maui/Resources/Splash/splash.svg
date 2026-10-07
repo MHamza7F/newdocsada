@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="splashCyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Hexagonal Industrial Frame -->
+  <polygon points="256,50 436,154 436,362 256,466 76,362 76,154" 
+           fill="#111827" stroke="url(#splashCyanGrad)" stroke-width="16" stroke-linejoin="round"/>
+
+  <!-- Radar / Telemetry Rings -->
+  <circle cx="256" cy="258" r="130" fill="none" stroke="#06B6D4" stroke-width="6" stroke-opacity="0.4" stroke-dasharray="14,10"/>
+  <circle cx="256" cy="258" r="85" fill="none" stroke="#22D3EE" stroke-width="8" stroke-opacity="0.8"/>
+  <circle cx="256" cy="258" r="40" fill="#0B0F17" stroke="#10B981" stroke-width="10"/>
+
+  <!-- Crosshairs / Sensors -->
+  <line x1="256" y1="138" x2="256" y2="188" stroke="#22D3EE" stroke-width="8" stroke-linecap="round"/>
+  <line x1="256" y1="328" x2="256" y2="378" stroke="#22D3EE" stroke-width="8" stroke-linecap="round"/>
+  <line x1="136" y1="258" x2="186" y2="258" stroke="#22D3EE" stroke-width="8" stroke-linecap="round"/>
+  <line x1="326" y1="258" x2="376" y2="258" stroke="#22D3EE" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Telemetry Pulse Wave -->
+  <polyline points="190,258 220,258 238,218 256,298 274,238 292,258 322,258" 
+            fill="none" stroke="#10B981" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Sensor Nodes -->
+  <circle cx="256" cy="98" r="10" fill="#22D3EE"/>
+  <circle cx="396" cy="180" r="10" fill="#06B6D4"/>
+  <circle cx="396" cy="336" r="10" fill="#10B981"/>
+  <circle cx="116" cy="180" r="10" fill="#06B6D4"/>
+  <circle cx="116" cy="336" r="10" fill="#10B981"/>
+</svg>

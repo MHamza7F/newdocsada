@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<!-- dxMAUI edited: Kept original android target as comment and added windows target for PC UI preview -->
+		<!-- <TargetFrameworks>net9.0-android</TargetFrameworks> -->
+		<TargetFrameworks>net9.0-android;net9.0-windows10.0.19041.0</TargetFrameworks>
+
+		<!-- dxMAUI edited: Allow running Windows app unpackaged without MSIX manifest requirement -->
+		<WindowsPackageType>None</WindowsPackageType>
+
+		<OutputType>Exe</OutputType>
+		<RootNamespace>scada_demo_test.Maui</RootNamespace>
+		<UseMaui>true</UseMaui>
+		<SingleProject>true</SingleProject>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<CheckEolTargetFramework>false</CheckEolTargetFramework>
+		<NoWarn>$(NoWarn);NETSDK1202;MA002</NoWarn>
+		<!-- Disable Fast Deployment to fix XA0137 error on Android emulator -->
+		<EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+		<!-- Display name and identifiers -->
+		<ApplicationTitle>SCADA Industrial Monitor</ApplicationTitle>
+		<ApplicationId>com.scada.demo.industrial</ApplicationId>
+		<ApplicationDisplayVersion>1.1</ApplicationDisplayVersion>
+		<ApplicationVersion>3</ApplicationVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.19040.0</SupportedOSPlatformVersion>
+		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.19040.0</TargetPlatformMinVersion>
+	</PropertyGroup>
+	<ItemGroup>
+		<!-- Explicit .NET 9 MAUI Package Reference to fix MA002 warning -->
+		<PackageReference Include="Microsoft.Maui.Controls" Version="9.0.120" />
+		<!-- CommunityToolkit MVVM & Maui -->
+		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
+		<PackageReference Include="FirebaseDatabase.net" Version="5.0.0" />
+	</ItemGroup>
+	<ItemGroup>
+		<!-- App Icon & Images -->
+		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#0B0F17" />
+		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#0B0F17" BaseSize="128,128" />
+		<MauiImage Include="Resources\Images\*" />
+	</ItemGroup>
+	<!-- Project references -->
+	<ItemGroup>
+		<ProjectReference Include="..\scada_demo_test.Domain\scada_demo_test.Domain.csproj" />
+	</ItemGroup>
+</Project>

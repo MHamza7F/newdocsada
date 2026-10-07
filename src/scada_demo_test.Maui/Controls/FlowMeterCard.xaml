@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:models="clr-namespace:scada_demo_test.Maui.Models"
+             x:Class="scada_demo_test.Maui.Controls.FlowMeterCard"
+             x:DataType="models:FlowMeterModel">
+
+    <Border Style="{StaticResource ScadaCardStyle}"
+            Margin="0,0,0,12">
+        <VerticalStackLayout Spacing="12">
+            <!-- Header: Meter Name & Status Pill -->
+            <Grid ColumnDefinitions="*, Auto" VerticalOptions="Center">
+                <VerticalStackLayout Grid.Column="0" Spacing="2">
+                    <Label Text="{Binding DeviceName}"
+                           TextColor="{StaticResource ScadaTextPrimary}"
+                           FontSize="15"
+                           FontAttributes="Bold"
+                           LineBreakMode="TailTruncation" />
+                    <Label Text="{Binding DeviceExternalId}"
+                           TextColor="{StaticResource ScadaTextMuted}"
+                           FontSize="11" />
+                </VerticalStackLayout>
+
+                <!-- Status Pill -->
+                <Border Grid.Column="1"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="#111827"
+                        Stroke="{Binding StatusColor}"
+                        StrokeThickness="1"
+                        Padding="8,4"
+                        VerticalOptions="Center">
+                    <HorizontalStackLayout Spacing="6" VerticalOptions="Center">
+                        <BoxView WidthRequest="6"
+                                 HeightRequest="6"
+                                 CornerRadius="3"
+                                 Color="{Binding StatusColor}"
+                                 VerticalOptions="Center" />
+                        <Label Text="{Binding Status}"
+                               TextColor="{Binding StatusColor}"
+                               FontSize="11"
+                               FontAttributes="Bold" />
+                    </HorizontalStackLayout>
+                </Border>
+            </Grid>
+
+            <!-- Divider -->
+            <BoxView HeightRequest="1" Color="#374151" />
+
+            <!-- Telemetry Metrics Grid -->
+            <Grid ColumnDefinitions="*, *" ColumnSpacing="12">
+                <!-- Flow Rate Box -->
+                <Border Grid.Column="0"
+                        StrokeShape="RoundRectangle 8"
+                        BackgroundColor="#111827"
+                        Stroke="#374151"
+                        StrokeThickness="1"
+                        Padding="12,10">
+                    <VerticalStackLayout Spacing="2">
+                        <HorizontalStackLayout Spacing="4" VerticalOptions="Center">
+                            <Label Text="{Binding FormattedFlowRate}"
+                                   Style="{StaticResource ScadaFlowValueLabel}" />
+                            <Label Text="{Binding TrendIndicator}"
+                                   TextColor="{Binding TrendColor}"
+                                   FontSize="14"
+                                   VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+                        <Label Text="Instantaneous Flow"
+                               TextColor="{StaticResource ScadaTextMuted}"
+                               FontSize="11" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Totalizer Box -->
+                <Border Grid.Column="1"
+                        StrokeShape="RoundRectangle 8"
+                        BackgroundColor="#111827"
+                        Stroke="#374151"
+                        StrokeThickness="1"
+                        Padding="12,10">
+                    <VerticalStackLayout Spacing="2">
+                        <Label Text="{Binding FormattedTotalizer}"
+                               Style="{StaticResource ScadaTotalizerLabel}" />
+                        <Label Text="Cumulative Totalizer"
+                               TextColor="{StaticResource ScadaTextMuted}"
+                               FontSize="11" />
+                    </VerticalStackLayout>
+                </Border>
+            </Grid>
+
+            <!-- Footer: Modbus Info & Quick Audit Action -->
+            <Grid ColumnDefinitions="*, Auto" VerticalOptions="Center">
+                <Label Grid.Column="0"
+                       Text="{Binding FormattedLastSeen, StringFormat='Heartbeat: {0}'}"
+                       TextColor="{StaticResource ScadaTextDim}"
+                       FontSize="11"
+                       VerticalOptions="Center" />
+
+                <Button Grid.Column="1"
+                        Text="📄 Audit Report"
+                        Style="{StaticResource ScadaOutlineBtn}"
+                        HeightRequest="32"
+                        FontSize="11"
+                        Clicked="OnAuditReportClicked" />
+            </Grid>
+        </VerticalStackLayout>
+    </Border>
+</ContentView>

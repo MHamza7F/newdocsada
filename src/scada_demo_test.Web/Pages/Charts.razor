@@ -1,0 +1,444 @@
+@page "/charts"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Tab:Charts")]
+@using scada_demo_test.Web.Services
+@implements IAsyncDisposable
+@inject ScadaDemoTestApiClient Api
+@inject IJSRuntime JS
+
+<div class="page-header-flex">
+    <div>
+        <h1 class="page-title">Analytics &amp; Plant Visualization</h1>
+        <p class="page-subtitle">Live trends from every registered sensor - one chart per sensor with time axis and level bands</p>
+    </div>
+
+    <div class="tab-switcher">
+        <button class="tab-btn @(ActiveSubTab == "charts" ? "active" : "")" @onclick='() => SetSubTab("charts")'>
+            Live Charts
+        </button>
+        <button class="tab-btn @(ActiveSubTab == "comparison" ? "active" : "")" @onclick='() => SetSubTab("comparison")'>
+            Trend Comparison
+        </button>
+    </div>
+</div>
+
+<!-- Plant Snapshot KPI band (real live values only) -->
+@if (Sensors.Count > 0)
+{
+    <div class="kpi-strip">
+        <div class="kpi-card">
+            <span class="kpi-label">Sensors Online</span>
+            <strong class="kpi-value text-green">@Sensors.Count(s => s.IsOnline) / @Sensors.Count</strong>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Temperature</span>
+            <strong class="kpi-value text-cyan">@FormatKpi(_latestTemp, "°C")</strong>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Humidity</span>
+            <strong class="kpi-value text-cyan">@FormatKpi(_latestHumidity, "%RH")</strong>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Flow Rate</span>
+            <strong class="kpi-value">@FormatKpi(_latestFlow, _flowUnit)</strong>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Totalizer</span>
+            <strong class="kpi-value">@FormatKpi(_latestTotalizer, _totalizerUnit)</strong>
+        </div>
+    </div>
+}
+
+@if (ActiveSubTab == "charts")
+{
+    @if (Sensors.Count == 0 && !Loading)
+    {
+        <div class="glass-card" style="text-align:center;padding:3rem;">
+            <h3 style="color:var(--text-primary);">No Sensors Yet</h3>
+            <p style="color:var(--text-muted);font-size:0.9rem;">
+                Add a gateway and attach its meters as sensors from the <strong>Gateways</strong> tab - every added sensor
+                streams a live chart here.
+            </p>
+        </div>
+    }
+    else
+    {
+        <div class="signal-banner">
+            <span class="signal-label">Window:</span>
+            @foreach (var (key, label) in RangeOptions)
+            {
+                <button class="chip @(SelectedRange == key ? "active" : "")" @onclick='() => ApplyRange(key)'>@label</button>
+            }
+            <span class="signal-hint">@WindowHint</span>
+        </div>
+
+        <div class="chart-grid">
+            @foreach (var s in Sensors)
+            {
+                var level = MetricLevel(s.LatestPrimary, s.UnitPrimary);
+                <div class="chart-card glass-card">
+                    <div class="chart-header">
+                        <div class="chart-title-box">
+                            <span class="status-dot @(s.IsOnline ? "online" : "offline")"></span>
+                            <h4>@s.Name</h4>
+                        </div>
+                        <div style="display:flex;gap:0.4rem;align-items:center;">
+                            <span class="level-chip @level.Css">@level.Label</span>
+                            <span class="chart-badge">@(s.IsOnline ? "ONLINE" : "OFFLINE")</span>
+                        </div>
+                    </div>
+                    <div style="color:var(--text-muted);font-size:0.74rem;margin:0.15rem 0 0.4rem 0.9rem;">
+                        @(s.UniqueSensorId) &bull; Slave @s.SlaveAddress &bull; @(s.DriverDisplayName?.Split('(')[0]?.Trim()) &bull; via @DeviceNameOf(s.DeviceId)
+                    </div>
+                    <div class="chart-canvas-container">
+                        <canvas id="chart-@s.Id" class="scada-canvas"></canvas>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:0.35rem 0.9rem 0.15rem;">
+                        <div style="font-size:1.15rem;font-weight:800;color:var(--primary-blue);font-family:monospace;">
+                            @MetricValueFormat.Display(s.LatestPrimary, s.UnitPrimary) @s.UnitPrimary
+                        </div>
+                        <div style="color:var(--text-muted);font-size:0.72rem;">
+                            @(s.LatestTimestampUtc.HasValue ? $"{s.LatestTimestampUtc.Value.ToLocalTime():HH:mm:ss}" : "no live data")
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+else if (ActiveSubTab == "comparison")
+{
+    <div class="glass-card comparison-wrapper">
+        <div class="comparison-header">
+            <div>
+                <h3>Sensor Trend Comparison</h3>
+                <p class="text-muted">Overlay the last @SampleCount readings of two real sensors (@WindowHint)</p>
+            </div>
+            <div style="display:flex;gap:0.8rem;flex-wrap:wrap;align-items:center;">
+                <select class="custom-select" @bind="CompareAId" @bind:after="OnCompareChanged">
+                    @foreach (var s in Sensors)
+                    {
+                        <option value="@s.Id.ToString()">@(CompareName(s))</option>
+                    }
+                </select>
+                <span style="color:var(--text-muted);">vs</span>
+                <select class="custom-select" @bind="CompareBId" @bind:after="OnCompareChanged">
+                    @foreach (var s in Sensors)
+                    {
+                        <option value="@s.Id.ToString()">@(CompareName(s))</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        @if (TwoCompareSensors)
+        {
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem;">
+                <div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
+                        <strong style="color:var(--text-primary);font-size:0.85rem;">@CompareName(CompareA)</strong>
+                        <span class="chart-badge">@CompareA?.UnitPrimary</span>
+                    </div>
+                    <div class="comparison-chart-box">
+                        <canvas id="cmp-chart-a" class="comparison-canvas"></canvas>
+                    </div>
+                </div>
+                <div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
+                        <strong style="color:var(--text-primary);font-size:0.85rem;">@CompareName(CompareB)</strong>
+                        <span class="chart-badge">@CompareB?.UnitPrimary</span>
+                    </div>
+                    <div class="comparison-chart-box">
+                        <canvas id="cmp-chart-b" class="comparison-canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="glass-card" style="text-align:center;padding:2rem;color:var(--text-muted);margin-top:1rem;">
+                Add at least two sensors from the Gateways tab to compare them here.
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private static readonly (string Key, string Label)[] RangeOptions =
+    {
+        ("1h", "Last 1 Hour"),
+        ("6h", "Last 6 Hours"),
+        ("1d", "Last 1 Day"),
+        ("7d", "Last 7 Days"),
+    };
+
+    private string ActiveSubTab = "charts";
+    private string SelectedRange = "1h";
+    private int SampleCount = 120;
+    private DateTime _windowStartUtc = DateTime.UtcNow.AddHours(-1);
+    private bool Loading = true;
+
+    private List<ScadaDemoTestApiClient.AttachedSensorDto> Sensors = new();
+    private readonly Dictionary<string, string> _deviceNames = new();
+    private readonly Dictionary<Guid, string> _drawnSignature = new();
+
+    private double? _latestTemp;
+    private double? _latestHumidity;
+    private double? _latestFlow;
+    private string _flowUnit = "";
+    private double? _latestTotalizer;
+    private string _totalizerUnit = "";
+
+    private Guid CompareAId;
+    private Guid CompareBId;
+
+    private ScadaDemoTestApiClient.AttachedSensorDto? CompareA => Sensors.FirstOrDefault(s => s.Id == CompareAId);
+    private ScadaDemoTestApiClient.AttachedSensorDto? CompareB => Sensors.FirstOrDefault(s => s.Id == CompareBId);
+    private bool TwoCompareSensors => Sensors.Count >= 2;
+
+    private string WindowHint => SelectedRange switch
+    {
+        "1h" => "past hour",
+        "6h" => "past 6 hours",
+        "1d" => "past 24 hours",
+        "7d" => "past 7 days",
+        _ => ""
+    };
+
+    private System.Threading.Timer? _refreshTimer;
+    private bool _disposed;
+    private DateTime _lastSensorRefresh = DateTime.MinValue;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSensorsAsync();
+    }
+
+    private async Task LoadSensorsAsync()
+    {
+        var devices = await Api.GetGatewayDevicesAsync();
+        Sensors = new List<ScadaDemoTestApiClient.AttachedSensorDto>();
+        _deviceNames.Clear();
+        var all = await Task.WhenAll(devices.Select(async d =>
+        {
+            var sensors = await Api.GetSensorsAsync(d.Id);
+            _deviceNames[d.Id.ToString()] = d.Name;
+            return sensors;
+        }));
+        foreach (var sensors in all) Sensors.AddRange(sensors);
+
+        if (CompareAId == Guid.Empty && Sensors.Count > 0) CompareAId = Sensors[0].Id;
+        if (CompareBId == Guid.Empty && Sensors.Count > 1) CompareBId = Sensors[1].Id;
+        else if (CompareBId == Guid.Empty && Sensors.Count > 0) CompareBId = Sensors[0].Id;
+
+        Loading = false;
+    }
+
+    private string DeviceNameOf(Guid deviceId) =>
+        _deviceNames.TryGetValue(deviceId.ToString(), out var n) ? n : "--";
+
+    private string CompareName(ScadaDemoTestApiClient.AttachedSensorDto? s) =>
+        s is null ? "—" : $"{s.Name} ({s.UnitPrimary})";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await InvokeAsync(RefreshActiveTabAsync);
+            _refreshTimer = new System.Threading.Timer(async _ =>
+            {
+                if (_disposed) return;
+                try { await InvokeAsync(RefreshActiveTabAsync); }
+                catch { /* circuit disposed */ }
+            }, null, 2000, 2000);
+        }
+    }
+
+    private async Task SetSubTab(string tab)
+    {
+        ActiveSubTab = tab;
+        await Task.Delay(40);
+        await RefreshActiveTabAsync();
+    }
+
+    private void ApplyRange(string key)
+    {
+        if (SelectedRange == key) return;
+        SelectedRange = key;
+        // 1h/6h -> recent samples; 1d/7d -> bounded window against a big count.
+        switch (key)
+        {
+            case "1h": SampleCount = 120; _windowStartUtc = DateTime.UtcNow.AddHours(-1); break;
+            case "6h": SampleCount = 400; _windowStartUtc = DateTime.UtcNow.AddHours(-6); break;
+            case "1d": SampleCount = 800; _windowStartUtc = DateTime.UtcNow.AddDays(-1); break;
+            case "7d": SampleCount = 1500; _windowStartUtc = DateTime.UtcNow.AddDays(-7); break;
+        }
+        _ = RefreshActiveTabAsync();
+    }
+
+    private async Task OnCompareChanged()
+    {
+        CompareBId = CompareBId == CompareAId && Sensors.Count > 1
+            ? Sensors.First(x => x.Id != CompareAId).Id
+            : CompareBId;
+        await DrawComparisonAsync();
+    }
+
+    private async Task RefreshActiveTabAsync()
+    {
+        if (_disposed) return;
+        try
+        {
+            if (ActiveSubTab == "charts")
+            {
+                if (Sensors.Count == 0) return;
+
+                // Refresh sensor metadata (online status, latest value) every ~6s.
+                if (DateTime.UtcNow - _lastSensorRefresh > TimeSpan.FromSeconds(6))
+                {
+                    _lastSensorRefresh = DateTime.UtcNow;
+                    await LoadSensorsAsync();
+                    if (_disposed) return;
+                }
+
+                var startLabel = _windowStartUtc.ToLocalTime().ToString(SelectedRange is "1d" or "7d" ? "MM-dd HH:mm" : "HH:mm");
+                await Task.WhenAll(Sensors.Select(async s =>
+                {
+                    if (_disposed) return;
+                    try
+                    {
+                        var readings = SelectedRange is "1h" or "6h"
+                            ? await Api.GetSensorTelemetryAsync(s.Id, SampleCount)
+                            : await Api.GetSensorTelemetryRangeAsync(s.Id, _windowStartUtc.ToLocalTime(), DateTime.Now, SampleCount);
+
+                        if (_disposed || readings.Count == 0) return;
+
+                        var ordered = readings.OrderBy(r => r.TimestampUtc).ToList();
+                        var values = ordered.Select(r => r.PrimaryValue).ToArray();
+                        var times = ordered.Select(r =>
+                            new DateTimeOffset(DateTime.SpecifyKind(r.TimestampUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds()).ToArray();
+
+                        // Skip redraw when nothing changed (two already-drawn rows of
+                        // the same length and same latest stamp/value).
+                        var signature = $"{values.Length}|{ordered[^1].TimestampUtc:T}|{values[^1]}";
+                        if (_drawnSignature.TryGetValue(s.Id, out var prev) && prev == signature) return;
+                        _drawnSignature[s.Id] = signature;
+
+                        var endLabel = ordered[^1].TimestampUtc.ToLocalTime().ToString("HH:mm:ss");
+                        var color = s.UnitPrimary == "°C" ? "#0284c7" : "#059669";
+                        await JS.InvokeVoidAsync("drawLineChart", $"chart-{s.Id}", values, color, startLabel, endLabel, null, null, times);
+                    }
+                    catch { /* JS interop / disconnect */ }
+                }));
+
+                ComputeKpis();
+            }
+            else if (ActiveSubTab == "comparison")
+            {
+                await DrawComparisonAsync();
+            }
+
+            if (!_disposed) StateHasChanged();
+        }
+        catch { /* background refresh */ }
+    }
+
+    private void ComputeKpis()
+    {
+        _latestTemp = null;
+        _latestHumidity = null;
+        _latestFlow = null;
+        _flowUnit = "";
+        _latestTotalizer = null;
+        _totalizerUnit = "";
+
+        foreach (var s in Sensors.Where(x => x.IsOnline && x.LatestPrimary.HasValue))
+        {
+            var v = s.LatestPrimary.GetValueOrDefault();
+            var unit = (s.UnitPrimary ?? "").ToLowerInvariant();
+            if (unit == "°c") _latestTemp = Math.Max(_latestTemp ?? v, v);
+            else if (unit == "%rh") _latestHumidity = Math.Max(_latestHumidity ?? v, v);
+            else if (unit is "m³/h" or "nm³/h" or "m3/h")
+            {
+                _latestFlow = Math.Max(_latestFlow ?? v, v);
+                _flowUnit = s.UnitPrimary ?? "m³/h";
+            }
+            else if (unit == "m³")
+            {
+                _latestTotalizer = Math.Max(_latestTotalizer ?? v, v);
+                _totalizerUnit = s.UnitPrimary ?? "m³";
+            }
+        }
+    }
+
+    private static string FormatKpi(double? v, string unit) =>
+        v.HasValue ? $"{v.Value:0.00} {unit}" : "--";
+
+    private static (string Label, string Css) MetricLevel(double? value, string? unit)
+    {
+        if (!value.HasValue) return ("--", "off");
+        var v = value.Value;
+        var u = (unit ?? "").Trim();
+
+        if (u == "°C")
+        {
+            if (v <= 20) return ("LOW", "low");
+            if (v >= 60) return ("HIGH", "high");
+            return ("MEDIUM", "medium");
+        }
+        if (u == "%RH")
+        {
+            if (v <= 25) return ("LOW", "low");
+            if (v >= 70) return ("HIGH", "high");
+            return ("MEDIUM", "medium");
+        }
+        if (u is "m³/h" or "Nm³/h" or "m3/h")
+        {
+            if (v <= 0.1) return ("LOW", "low");
+            if (v >= 100) return ("HIGH", "high");
+            return ("MEDIUM", "medium");
+        }
+        if (u == "m³")
+        {
+            if (v <= 10) return ("LOW", "low");
+            if (v >= 10000) return ("HIGH", "high");
+            return ("MEDIUM", "medium");
+        }
+
+        if (v <= 10) return ("LOW", "low");
+        if (v >= 90) return ("HIGH", "high");
+        return ("MEDIUM", "medium");
+    }
+
+    private async Task DrawComparisonAsync()
+    {
+        if (_disposed || !TwoCompareSensors) return;
+        try
+        {
+            var a = CompareA;
+            var b = CompareB;
+            if (a is null || b is null) return;
+
+            var readA = (await Api.GetSensorTelemetryAsync(a.Id, SampleCount)).OrderBy(r => r.TimestampUtc).ToList();
+            var readB = (await Api.GetSensorTelemetryAsync(b.Id, SampleCount)).OrderBy(r => r.TimestampUtc).ToList();
+            var timesA = readA.Select(r => new DateTimeOffset(DateTime.SpecifyKind(r.TimestampUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds()).ToArray();
+            var timesB = readB.Select(r => new DateTimeOffset(DateTime.SpecifyKind(r.TimestampUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds()).ToArray();
+
+            var startLabel = _windowStartUtc.ToLocalTime().ToString("HH:mm");
+            var endLabel = "now";
+            if (readA.Count > 0) await JS.InvokeVoidAsync("drawLineChart", "cmp-chart-a", readA.Select(r => r.PrimaryValue).ToArray(), "#0284c7", startLabel, endLabel, null, null, timesA);
+            if (readB.Count > 0) await JS.InvokeVoidAsync("drawLineChart", "cmp-chart-b", readB.Select(r => r.PrimaryValue).ToArray(), "#059669", startLabel, endLabel, null, null, timesB);
+        }
+        catch { /* interop */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        _drawnSignature.Clear();
+        if (_refreshTimer is not null)
+        {
+            await _refreshTimer.DisposeAsync();
+            _refreshTimer = null;
+        }
+    }
+}

@@ -1,0 +1,447 @@
+@page "/energy"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Tab:Energy")]
+@using scada_demo_test.Web.Services
+@inject ScadaDemoTestApiClient Api
+@inject LiveTelemetryState State
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="pe-dash">
+    <div class="pe-topbar"><div class="pe-topbar-in">
+        <div class="pe-brand">
+            <span class="pe-badge">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg>
+            </span>
+        </div>
+        <div class="pe-title">
+            <div class="pe-t2">Plant Energy</div>
+        </div>
+        <div class="pe-actions">
+            <button type="button" title="Local time">@Clock</button>
+            <button type="button" @onclick="RefreshAsync" @onclick:preventDefault disabled="@Refreshing">@(Refreshing ? "Refreshing..." : "Refresh")</button>
+        </div>
+    </div></div>
+
+    <div class="pe-wrap">
+        @if (Loading)
+        {
+            <div class="pe-load">Loading plant energy&hellip;</div>
+        }
+        else
+        {
+            <div class="pe-toolbar">
+                <span style="font-size:11px;color:var(--text-muted);">Category-wise live values from registered sensors &mdash; no simulated readings</span>
+            </div>
+
+            <div class="pe-kpis">
+                <div class="pe-kpi"><small>Total flow</small><b>@MetricValueFormat.Display(KpiFlow, KpiFlowUnit)</b></div>
+                <div class="pe-kpi"><small>Total volume</small><b>@MetricValueFormat.Display(KpiVolume, KpiVolumeUnit)</b></div>
+                <div class="pe-kpi"><small>Active sensors</small><b>@KpiOnline <span>/ @Cards.Count</span></b></div>
+                <div class="pe-kpi"><small>Online</small><b>@(Cards.Count == 0 ? "--" : (int)Math.Round(100.0 * KpiOnline / Cards.Count) + "%")</b></div>
+            </div>
+
+            @if (Cards.Count == 0)
+            {
+                <div class="pe-empty-state">No sensors registered yet. Add a gateway and attach sensors from Devices &gt; Gateway - each sensor appears here automatically as a category card.</div>
+            }
+            else
+            {
+                @if (KpiOnline == 0)
+                {
+                    <div class="pe-note">@Cards.Count sensor(s) registered but none are online right now - the gateway is not reachable. Live values will appear automatically the moment it connects.</div>
+                }
+
+                <div class="pe-groups">
+                    @foreach (var c in Cards)
+                    {
+                        <section class="pe-group @(c.IsOnline ? "" : "pe-offline")">
+                            <div class="pe-g-head">@c.Name <span class="pe-tag">@c.TrendTag</span></div>
+                            <div class="pe-g-body">
+                                @for (var h = 0; h < 2; h++)
+                                {
+                                    var m = h == 0 ? c.A : c.B;
+                                    if (m is null)
+                                    {
+                                        <div class="pe-half"><h3>@(h == 0 ? "Primary" : "Secondary")</h3><div class="pe-empty">No metric selected</div></div>
+                                    }
+                                    else
+                                    {
+                                        <div class="pe-half">
+                                            <h3>@m!.Label</h3>
+                                            <div class="pe-gauge @(c.IsOnline ? "" : "offline")">@((MarkupString)m!.Svg)</div>
+                                            <div class="pe-rows">
+                                                <div class="pe-row"><span class="lbl">Live value</span><span class="val">@m!.DisplayValue</span></div>
+                                                <div class="pe-row"><span class="lbl">Unit</span><span class="val unit">@(m!.Unit ?? "&mdash;")</span></div>
+                                                <div class="pe-row"><span class="lbl">Scale</span><span class="val unit">0 &mdash; @m!.MaxText @(m!.Unit ?? "")</span></div>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                            <div class="pe-foot">
+                                <span>Slave @c.Slave &bull; via @c.DeviceName</span>
+                                <span>Last seen @FmtSeen(c.LastSeen)</span>
+                            </div>
+                        </section>
+                    }
+                </div>
+            }
+
+            <div class="pe-footline"><span><b>REAL TELEMETRY</b> &mdash; values streamed from the Modbus poller via SignalR. Data source: /api/devices + /api/sensors.</span><span>Updated @Clock</span></div>
+        }
+    </div>
+</div>
+
+@code {
+    private sealed class MetricView
+    {
+        public string Key = "";
+        public string Id = "";
+        public string Label = "";
+        public double? Value;
+        public string? Unit;
+        public double Max = 100;
+        public double? Frac;
+        public string Svg = "";
+        public string DisplayValue = "--";
+        public string MaxText = "100";
+    }
+
+    private sealed class SensorCard
+    {
+        public string SensorTag = "";
+        public string Name = "";
+        public string DeviceName = "";
+        public int Slave;
+        public bool IsOnline;
+        public DateTime? LastSeen;
+        public MetricView? A;
+        public MetricView? B;
+        public string TrendTag = "";
+    }
+
+    private List<SensorCard> Cards = new();
+    private bool Loading = true;
+    private bool Refreshing;
+    private bool _disposed;
+    private System.Threading.Timer? _refreshTimer;
+    private string Clock = DateTime.Now.ToString("HH:mm:ss");
+    private int KpiOnline;
+    private double? KpiFlow;
+    private string? KpiFlowUnit;
+    private double? KpiVolume;
+    private string? KpiVolumeUnit;
+
+    private static string FmtSeen(DateTime? utc) =>
+        utc.HasValue ? utc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : "&mdash;";
+
+    private static Dictionary<string, string> ParseMetricFields(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try
+        {
+            var d = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            return d ?? new();
+        }
+        catch { return new(); }
+    }
+
+    private static double MaxFor(string? unit)
+    {
+        if (unit is null) return 100;
+        var u = unit.ToLowerInvariant();
+        if (u.Contains("%rh") || u.Contains("rh%")) return 100;
+        if (u.Contains("°c") || u.StartsWith("c")) return 100;
+        if (u.Contains("m³/h") || u.Contains("m3/h") || u.Contains("nm³/h") || u.Contains("nm3/h")) return 1000;
+        if (u.Contains("m³") || u.Contains("m3")) return 10000;
+        return 100;
+    }
+
+    private static string PrettyLabel(string key) => (key.ToLowerInvariant()) switch
+    {
+        "temperaturec" or "temperature" or "temp" => "Temperature",
+        "humidityrh" or "humidity" => "Humidity",
+        "instantaneousflowrate" or "flowrate" or "flow" => "Flow Rate",
+        "accumulatedtotalizer" or "totalizer" or "total" => "Totalizer",
+        "velocity" => "Velocity",
+        _ => key
+    };
+
+    private MetricView BuildMetric(int index, string key, string? pretty, double? value, string? unit, Guid sensorId)
+    {
+        var id = "pe" + sensorId.ToString("N")[..8] + index;
+        var max = MaxFor(unit);
+        var frac = value.HasValue ? Math.Clamp(value.Value / max, 0, 1) : 0;
+        return new MetricView
+        {
+            Key = key,
+            Id = id,
+            Label = string.IsNullOrWhiteSpace(pretty) ? PrettyLabel(key) : pretty,
+            Value = value,
+            Unit = string.IsNullOrWhiteSpace(unit) ? null : unit,
+            Max = max,
+            Frac = frac,
+            DisplayValue = MetricValueFormat.Display(value, unit),
+            MaxText = max.ToString("0", System.Globalization.CultureInfo.InvariantCulture),
+            Svg = GaugeSvg(id, key, value, unit, max, frac)
+        };
+    }
+
+    private static double TrackLen(double radius, double sweep) => sweep / 360 * 2 * Math.PI * radius;
+
+    private static string GaugeSvg(string id, string label, double? value, string? unit, double max, double frac)
+    {
+        const double cx = 110, cy = 104, r = 76, sweep = 260, start = 140;
+        static double Rad(double deg) => deg * Math.PI / 180;
+        (double X, double Y) Pt(double deg, double rr)
+        {
+            var a = Rad(deg);
+            return (cx + rr * Math.Cos(a), cy + rr * Math.Sin(a));
+        }
+        string Arc(double from, double to)
+        {
+            var p1 = Pt(from, r);
+            var p2 = Pt(to, r);
+            var large = (to - from) > 180 ? 1 : 0;
+            return $"M{p1.X:F2} {p1.Y:F2} A{r} {r} 0 {large} 1 {p2.X:F2} {p2.Y:F2}";
+        }
+
+        var trackLen = TrackLen(r, sweep);
+        var valText = value.HasValue
+            ? MetricValueFormat.Display(value, unit)
+            : "--";
+        var a11y = System.Net.WebUtility.HtmlEncode($"{label}: {valText} {unit}");
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"<svg viewBox=\"0 0 220 168\" role=\"img\" aria-label=\"{a11y}\">");
+        sb.Append($"<defs><linearGradient id=\"egrad-{id}\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"0\"><stop offset=\"0\" stop-color=\"{argsNavy}\"/><stop offset=\"1\" stop-color=\"{argsBlue2}\"/></linearGradient></defs>");
+        sb.Append($"<path class=\"pe-arc-bg\" d=\"{Arc(start, start + sweep)}\"/>");
+        sb.Append($"<path id=\"pe-fill-{id}\" class=\"pe-arc-fill\" stroke=\"url(#egrad-{id})\" stroke-dasharray=\"{trackLen:F1} {trackLen + 10:F1}\" stroke-dashoffset=\"{trackLen * (1 - frac):F1}\" d=\"{Arc(start, start + sweep)}\"/>");
+        for (var k = 0; k <= 4; k++)
+        {
+            var f = k / 4d;
+            var a = start + f * sweep;
+            var tLabel = (max * k / 4).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+            var p1 = Pt(a, r - 9.5);
+            var p2 = Pt(a, r + 6.5);
+            var ptl = Pt(a, r + 18);
+            sb.Append($"<line x1=\"{p1.X:F1}\" y1=\"{p1.Y:F1}\" x2=\"{p2.X:F1}\" y2=\"{p2.Y:F1}\" stroke=\"var(--text-muted)\" stroke-width=\"1.1\"/>");
+            sb.Append($"<text class=\"pe-tick-lb\" x=\"{ptl.X:F1}\" y=\"{ptl.Y + 3:F1}\" text-anchor=\"middle\">{tLabel}</text>");
+        }
+        sb.Append($"<text id=\"pe-val-{id}\" class=\"pe-g-val\" x=\"110\" y=\"130\" text-anchor=\"middle\">{valText}</text>");
+        sb.Append("</svg>");
+        return sb.ToString();
+    }
+
+    private const string argsNavy = "#075985";
+    private const string argsBlue2 = "#38bdf8";
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.OnChange += HandleLiveChange;
+        await RefreshAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender && _animDirty)
+        {
+            _animDirty = false;
+            try
+            {
+                var updates = new List<object>();
+                const double r = 76, sweep = 260;
+                var trackLen = sweep / 360 * 2 * Math.PI * r;
+                foreach (var c in Cards)
+                {
+                    foreach (var m in new[] { c.A, c.B })
+                    {
+                        if (m is null || string.IsNullOrEmpty(m.Id)) continue;
+                        var frac = m.Frac ?? 0;
+                        updates.Add(new { id = m.Id, offset = trackLen * (1 - frac), value = m.DisplayValue });
+                    }
+                }
+                if (updates.Count > 0)
+                {
+                    await JS.InvokeVoidAsync("animPeGauge", updates);
+                }
+            }
+            catch { /* JS unavailable on reconnect - harmless */ }
+        }
+        else if (firstRender)
+        {
+            _refreshTimer = new System.Threading.Timer(async _ =>
+            {
+                if (_disposed) return;
+                try { await InvokeAsync(RefreshAsync); }
+                catch { /* circuit disposed */ }
+            }, null, 4000, 4000);
+        }
+    }
+
+    private void HandleLiveChange()
+    {
+        if (_disposed) return;
+        _ = InvokeAsync(() =>
+        {
+            try
+            {
+                if (!_disposed)
+                {
+                    SyncLiveValues();
+                    Clock = DateTime.Now.ToString("HH:mm:ss");
+                    StateHasChanged();
+                }
+            }
+            catch { }
+        });
+    }
+
+    private void SyncLiveValues()
+    {
+        double? flowSum = null;
+        double? volSum = null;
+        var online = 0;
+        foreach (var c in Cards)
+        {
+            // Base online state comes from the API DTO (worker-maintained IsOnline
+            // = real poll/push success). The SignalR live bus only overrides it when
+            // it actually has a reading for this sensor — a silent bus must NOT
+            // force ONLINE sensors to render OFFLINE.
+            if (State.Meters.TryGetValue(c.SensorTag, out var meter) && meter is not null)
+            {
+                c.IsOnline = meter.IsOnline;
+            }
+            if (c.IsOnline)
+            {
+                online++;
+                if (State.Meters.TryGetValue(c.SensorTag, out var live) && live is not null && live.LastSeen != default)
+                    c.LastSeen = live.LastSeen;
+            }
+            if (State.Meters.TryGetValue(c.SensorTag, out var m2) && m2 is not null)
+            {
+                TrySet(c.A, m2.Values);
+                TrySet(c.B, m2.Values);
+            }
+        }
+        foreach (var c in Cards)
+        {
+            foreach (var m in new[] { c.A, c.B })
+            {
+                if (m is null || !m.Value.HasValue || !c.IsOnline) continue;
+                var u = (m.Unit ?? "").ToLowerInvariant();
+                if (u.Contains("m³/h") || u.Contains("m3/h") || u.Contains("nm³/h") || u.Contains("nm3/h"))
+                {
+                    flowSum = (flowSum ?? 0) + m.Value;
+                    KpiFlowUnit = m.Unit;
+                }
+                else if ((u.Contains("m³") || u.Contains("m3")) && !u.Contains("/h"))
+                {
+                    volSum = (volSum ?? 0) + m.Value;
+                    KpiVolumeUnit = m.Unit;
+                }
+            }
+        }
+        KpiFlow = flowSum;
+        KpiVolume = volSum;
+        KpiOnline = online;
+    }
+
+    private bool _animDirty;
+
+    private void TrySet(MetricView? m, Dictionary<string, (double Value, string? Unit, DateTime Seen)> values)
+    {
+        if (m is null || string.IsNullOrWhiteSpace(m.Key)) return;
+        if (values.TryGetValue(m.Key, out var r))
+        {
+            m.Value = r.Value;
+            m.Unit = r.Unit;
+            m.DisplayValue = MetricValueFormat.Display(m.Value, m.Unit);
+            if (m.Unit is not null && MaxFor(m.Unit) != m.Max)
+            {
+                m.Max = MaxFor(m.Unit);
+                m.MaxText = m.Max.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+                m.Svg = GaugeSvg(m.Id, m.Key, m.Value, m.Unit, m.Max, m.Frac ?? 0);
+            }
+            m.Frac = m.Value.HasValue ? Math.Clamp(m.Value.Value / m.Max, 0, 1) : 0;
+            if (!string.IsNullOrEmpty(m.Id)) _animDirty = true;
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        Refreshing = true;
+        try
+        {
+            var gateways = await Api.GetGatewayDevicesAsync();
+
+            var all = new List<ScadaDemoTestApiClient.AttachedSensorDto>();
+            var deviceMap = new Dictionary<Guid, string>();
+            var batches = await Task.WhenAll(gateways.Select(async d =>
+            {
+                deviceMap[d.Id] = d.Name;
+                try { return await Api.GetSensorsAsync(d.Id); }
+                catch { return new List<ScadaDemoTestApiClient.AttachedSensorDto>(); }
+            }));
+            foreach (var list in batches) all.AddRange(list);
+
+            var next = new List<SensorCard>();
+            foreach (var s in all.OrderBy(s => s.DeviceName).ThenBy(s => s.Name))
+            {
+                var fields = ParseMetricFields(s.MetricFields);
+                var card = new SensorCard
+                {
+                    SensorTag = s.UniqueSensorId,
+                    Name = s.Name,
+                    DeviceName = deviceMap.TryGetValue(s.DeviceId, out var n) ? n : s.DeviceName,
+                    Slave = s.SlaveAddress,
+                    IsOnline = s.IsOnline,
+                    LastSeen = s.LatestTimestampUtc,
+                    TrendTag = s.UniqueSensorId
+                };
+                var idx = 0;
+                foreach (var f in fields)
+                {
+                    double? v = null;
+                    if (idx == 0) { v = s.LatestPrimary; }
+                    else if (idx == 1) { v = s.LatestSecondary; }
+                    var m = BuildMetric(idx, f.Key, f.Key, v, f.Value, s.Id);
+                    if (idx == 0) card.A = m; else if (idx == 1) card.B = m;
+                    idx++;
+                }
+                if (card.A is null && s.UnitPrimary is not null)
+                {
+                    card.A = BuildMetric(0, s.Id.ToString(), "Primary", s.LatestPrimary, s.UnitPrimary, s.Id);
+                }
+                if (card.B is null && s.UnitSecondary is not null)
+                {
+                    card.B = BuildMetric(1, s.Id.ToString(), "Secondary", s.LatestSecondary, s.UnitSecondary, s.Id);
+                }
+                next.Add(card);
+            }
+
+            Cards = next;
+        }
+        catch
+        {
+            // API unreachable - keep the current list rather than crashing.
+        }
+
+        SyncLiveValues();
+        Loading = false;
+        Refreshing = false;
+        Clock = DateTime.Now.ToString("HH:mm:ss");
+        if (!_disposed) StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        State.OnChange -= HandleLiveChange;
+        if (_refreshTimer is not null)
+        {
+            await _refreshTimer.DisposeAsync();
+            _refreshTimer = null;
+        }
+    }
+}

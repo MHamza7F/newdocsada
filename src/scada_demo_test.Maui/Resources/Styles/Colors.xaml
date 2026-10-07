@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<?xaml-comp compile="true" ?>
+<ResourceDictionary 
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+
+    <!-- Industrial Dark Mode Obsidian Palette -->
+    <Color x:Key="ScadaBgDark">#0B0F17</Color>
+    <Color x:Key="ScadaBgSurface">#111827</Color>
+    <Color x:Key="ScadaBgCard">#1F2937</Color>
+    <Color x:Key="ScadaBgCardHover">#374151</Color>
+    <Color x:Key="ScadaBorder">#374151</Color>
+    <Color x:Key="ScadaBorderLight">#4B5563</Color>
+
+    <!-- Industrial Telemetry Accents -->
+    <Color x:Key="ScadaCyan">#06B6D4</Color>
+    <Color x:Key="ScadaCyanLight">#22D3EE</Color>
+    <Color x:Key="ScadaCyanGlow">#155E75</Color>
+    <Color x:Key="ScadaEmerald">#10B981</Color>
+    <Color x:Key="ScadaAmber">#F59E0B</Color>
+    <Color x:Key="ScadaRose">#EF4444</Color>
+    <Color x:Key="ScadaBlue">#0284C7</Color>
+
+    <!-- Typography Hierarchy -->
+    <Color x:Key="ScadaTextPrimary">#F9FAFB</Color>
+    <Color x:Key="ScadaTextSecondary">#D1D5DB</Color>
+    <Color x:Key="ScadaTextMuted">#9CA3AF</Color>
+    <Color x:Key="ScadaTextDim">#6B7280</Color>
+
+    <!-- Solid Brushes -->
+    <SolidColorBrush x:Key="ScadaBgDarkBrush" Color="{StaticResource ScadaBgDark}" />
+    <SolidColorBrush x:Key="ScadaBgSurfaceBrush" Color="{StaticResource ScadaBgSurface}" />
+    <SolidColorBrush x:Key="ScadaBgCardBrush" Color="{StaticResource ScadaBgCard}" />
+    <SolidColorBrush x:Key="ScadaCyanBrush" Color="{StaticResource ScadaCyan}" />
+    <SolidColorBrush x:Key="ScadaEmeraldBrush" Color="{StaticResource ScadaEmerald}" />
+    <SolidColorBrush x:Key="ScadaAmberBrush" Color="{StaticResource ScadaAmber}" />
+    <SolidColorBrush x:Key="ScadaRoseBrush" Color="{StaticResource ScadaRose}" />
+    <SolidColorBrush x:Key="ScadaTextPrimaryBrush" Color="{StaticResource ScadaTextPrimary}" />
+
+</ResourceDictionary>

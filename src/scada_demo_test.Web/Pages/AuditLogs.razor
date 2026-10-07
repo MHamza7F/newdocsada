@@ -1,0 +1,138 @@
+@page "/audit-logs"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Tab:AuditLogs")]
+@using scada_demo_test.Web.Services
+@inject ScadaDemoTestApiClient Api
+
+<div class="page-header-flex">
+    <div>
+        <h1 class="page-title">Enterprise Audit Trail</h1>
+        <p class="page-subtitle">Complete chronological activity log: who changed what, when, from which IP</p>
+    </div>
+    <div class="header-actions">
+        <button class="btn-sm-report" @onclick="LoadLogsAsync">🔄 Refresh Log</button>
+    </div>
+</div>
+
+<div class="glass-card table-card">
+    <div class="table-card-header">
+        <div class="search-input-wrap">
+            <input type="text" class="custom-input" placeholder="Search by user email, action, entity, details..." @bind="SearchQuery" @bind:event="oninput" @onkeydown="HandleKeyDown" />
+        </div>
+        <div class="table-stats">
+            <span>Total Events: <strong>@TotalCount</strong></span>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="scada-table">
+            <thead>
+                <tr>
+                    <th>Timestamp (UTC / Local)</th>
+                    <th>User / Actor</th>
+                    <th>Action</th>
+                    <th>Entity</th>
+                    <th>Details</th>
+                    <th>Client IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Logs.Count == 0)
+                {
+                    <tr>
+                        <td colspan="6" class="text-center text-muted" style="padding: 30px;">
+                            No audit log events recorded yet.
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var log in Logs)
+                    {
+                        <tr>
+                            <td class="text-muted" style="white-space:nowrap;">
+                                @log.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                            </td>
+                            <td>
+                                <strong>@(log.UserName ?? log.UserEmail ?? "System Worker")</strong>
+                                @if (!string.IsNullOrEmpty(log.UserEmail))
+                                {
+                                    <div class="text-muted" style="font-size:0.75rem;">@log.UserEmail</div>
+                                }
+                            </td>
+                            <td>
+                                <span class="audit-action-badge @GetActionBadgeClass(log.Action)">
+                                    @log.Action
+                                </span>
+                            </td>
+                            <td><code>@log.EntityName</code></td>
+                            <td>@log.Details</td>
+                            <td><span class="ip-tag">@(string.IsNullOrEmpty(log.IpAddress) ? "127.0.0.1" : log.IpAddress)</span></td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (TotalCount > 0)
+    {
+        var totalPages = Math.Max(1, (int)Math.Ceiling(TotalCount / 10.0));
+        <div class="pagination-bar">
+            <div class="pagination-info">
+                Showing @((CurrentPage - 1) * 10 + 1) to @(Math.Min(CurrentPage * 10, TotalCount)) of @TotalCount logs
+            </div>
+            <div class="pagination-controls">
+                <button class="pg-btn" disabled="@(CurrentPage <= 1)" @onclick="() => ChangePageAsync(CurrentPage - 1)">‹ Prev</button>
+                @for (int p = 1; p <= totalPages; p++)
+                {
+                    var pageNum = p;
+                    <button class="pg-btn @(pageNum == CurrentPage ? "active" : "")" @onclick="() => ChangePageAsync(pageNum)">@pageNum</button>
+                }
+                <button class="pg-btn" disabled="@(CurrentPage >= totalPages)" @onclick="() => ChangePageAsync(CurrentPage + 1)">Next ›</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<ScadaDemoTestApiClient.AuditLogDto> Logs = new();
+    private int TotalCount = 0;
+    private string SearchQuery = "";
+    private int CurrentPage = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLogsAsync();
+    }
+
+    private async Task LoadLogsAsync()
+    {
+        var result = await Api.GetAuditLogsAsync(SearchQuery, CurrentPage, 10);
+        Logs = result.Items;
+        TotalCount = result.Total;
+    }
+
+    private async Task ChangePageAsync(int page)
+    {
+        if (page < 1) return;
+        CurrentPage = page;
+        await LoadLogsAsync();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            CurrentPage = 1;
+            await LoadLogsAsync();
+        }
+    }
+
+    private string GetActionBadgeClass(string action)
+    {
+        if (action.Contains("Login") || action.Contains("Create")) return "badge-success";
+        if (action.Contains("Delete") || action.Contains("Failed")) return "badge-danger";
+        if (action.Contains("Update") || action.Contains("Acknowledge")) return "badge-warning";
+        return "badge-neutral";
+    }
+}

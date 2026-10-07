@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "scada_demo_test.API": {
+      "commandName": "Project",
+      "applicationUrl": "http://0.0.0.0:5080",
+      "environmentVariables": { "ASPNETCORE_ENVIRONMENT": "Development" }
+    }
+  }
+}

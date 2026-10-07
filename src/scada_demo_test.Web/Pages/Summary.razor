@@ -1,0 +1,157 @@
+@page "/summary"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Tab:Summary")]
+@using scada_demo_test.Web.Services
+@implements IDisposable
+@inject LiveTelemetryState State
+
+<div class="page-header">
+    <h1 class="page-title">Totalizer Summary</h1>
+    <p class="page-subtitle">Cumulative utility volume totals across all connected flowmeters — one row per added sensor</p>
+</div>
+
+@if (State.Meters.Count > 0)
+{
+    <div class="kpi-strip">
+        <div class="kpi-card">
+            <span class="kpi-label">Sensors</span>
+            <strong class="kpi-value">@State.Meters.Count</strong>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Online</span>
+            <strong class="kpi-value text-green">@State.Meters.Count(m => m.Value.IsOnline)</strong>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Offline</span>
+            <strong class="kpi-value text-red">@State.Meters.Count(m => !m.Value.IsOnline)</strong>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Live Link</span>
+            <strong class="kpi-value @(State.IsConnected ? "text-green" : "text-red")" style="font-size:0.9rem;">
+                @(State.IsConnected ? "Connected" : "Disconnected")
+            </strong>
+        </div>
+    </div>
+}
+
+<div class="glass-card table-card">
+    <div class="table-responsive">
+        <table class="scada-table">
+            <thead>
+                <tr>
+                    <th>Sensor</th>
+                    <th>Status</th>
+                    <th>Live Values</th>
+                    <th>Last Heartbeat</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (State.Meters.Count == 0)
+                {
+                    <tr>
+                        <td colspan="4" class="text-center text-muted" style="padding: 24px;">
+                            Connecting to sensors &amp; loading totalizers...
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    var totalMeters = State.Meters.Count;
+                    var totalPages = Math.Max(1, (int)Math.Ceiling(totalMeters / 10.0));
+                    var pagedMeters = State.Meters.Values.OrderBy(x => x.SensorName ?? x.DeviceName)
+                        .Skip((CurrentPage - 1) * 10).Take(10);
+
+                    @foreach (var m in pagedMeters)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@(m.SensorName ?? m.DeviceName)</strong>
+                                @if (!string.IsNullOrWhiteSpace(m.SensorName))
+                                {
+                                    <div style="font-size:0.74rem;color:var(--text-muted);">via @m.DeviceName</div>
+                                }
+                            </td>
+                            <td>
+                                <span class="status-pill @(m.IsOnline ? "online" : "offline")">
+                                    <span class="status-dot"></span>@(m.IsOnline ? "Online" : "Offline")
+                                </span>
+                            </td>
+                            <td class="font-mono text-cyan">
+                                @foreach (var kv in m.Values.OrderBy(v => v.Key))
+                                {
+                                    <div>@MetricLabel(kv.Key): @MetricValueFormat.Display(kv.Value.Value, kv.Value.Unit) @kv.Value.Unit</div>
+                                }
+                                @if (m.Values.Count == 0)
+                                {
+                                    <text>--</text>
+                                }
+                            </td>
+                            <td class="text-muted" style="white-space:nowrap;">@m.LastSeen.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (State.Meters.Count > 0)
+    {
+        var totalCount = State.Meters.Count;
+        var totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / 10.0));
+        <div class="pagination-bar">
+            <div class="pagination-info">
+                Showing @((CurrentPage - 1) * 10 + 1) to @(Math.Min(CurrentPage * 10, totalCount)) of @totalCount totalizers
+            </div>
+            <div class="pagination-controls">
+                <button class="pg-btn" disabled="@(CurrentPage <= 1)" @onclick="() => CurrentPage--">‹ Prev</button>
+                @for (int p = 1; p <= totalPages; p++)
+                {
+                    var pageNum = p;
+                    <button class="pg-btn @(pageNum == CurrentPage ? "active" : "")" @onclick="() => CurrentPage = pageNum">@pageNum</button>
+                }
+                <button class="pg-btn" disabled="@(CurrentPage >= totalPages)" @onclick="() => CurrentPage++">Next ›</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private int CurrentPage = 1;
+    private static string MetricLabel(string metric)
+    {
+        return metric switch
+        {
+            "TemperatureC" => "Temperature",
+            "HumidityRH" => "Humidity",
+            "InstantaneousFlowRate" => "Flow Rate",
+            "AccumulatedTotalizer" => "Totalizer",
+            _ => metric
+        };
+    }
+
+    private bool _disposed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.OnChange += HandleChange;
+        await State.EnsureConnectedAsync();
+    }
+
+    private void HandleChange()
+    {
+        if (_disposed) return;
+        _ = InvokeAsync(() =>
+        {
+            try
+            {
+                if (!_disposed) StateHasChanged();
+            }
+            catch { /* circuit closed */ }
+        });
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        State.OnChange -= HandleChange;
+    }
+}

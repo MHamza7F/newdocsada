@@ -1,0 +1,216 @@
+@page "/multi-site"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Tab:MultiSite")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using scada_demo_test.Web.Services
+@inject ScadaDemoTestApiClient Api
+@inject AuthenticationStateProvider AuthProvider
+
+<div class="page-header-flex">
+    <div>
+        <h1 class="page-title">Multi-Site Plant Fleet</h1>
+        <p class="page-subtitle">Centralized multi-tenant supervision across all remote manufacturing and utility facilities</p>
+    </div>
+    <div class="header-actions">
+        <button class="btn-primary-scada" @onclick="OpenAddSiteModal">
+            <span>➕ Add New Plant Facility</span>
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(ToastMessage))
+{
+    <div class="scada-toast @(ToastIsError ? "error" : "success")">
+        <span>@ToastMessage</span>
+        <button class="toast-close" @onclick="() => ToastMessage = null">✕</button>
+    </div>
+}
+
+<div class="site-cards-grid">
+    @foreach (var site in Sites)
+    {
+        <div class="site-card glass-card @(SelectedSiteId == site.Id ? "active-site-card" : "")" @onclick="() => SelectSite(site.Id)">
+            <div class="site-card-top">
+                <div>
+                    <span class="site-code-badge">@site.Code</span>
+                    <h3 class="site-name">@site.Name</h3>
+                    <p class="site-loc">📍 @site.Location</p>
+                </div>
+                <span class="status-pill online"><span class="status-dot"></span>Operational</span>
+            </div>
+
+            <p class="site-desc">@(string.IsNullOrWhiteSpace(site.Description) ? "Industrial utility and high-flow telemetry monitoring facility." : site.Description)</p>
+
+            <div class="site-metrics-mini">
+                <div class="mini-stat">
+                    <span>Gateways Attached</span>
+                    <strong>@GetGatewayCount(site.Id) Gateway(s)</strong>
+                </div>
+                <div class="mini-stat">
+                    <span>Field Sensors</span>
+                    <strong class="text-cyan">@GetSensorCount(site.Id) Registered</strong>
+                </div>
+                <div class="mini-stat">
+                    <span>Live Streaming</span>
+                    <strong class="@(GetOnlineSensorCount(site.Id) > 0 ? "text-green" : "text-muted")">@GetOnlineSensorCount(site.Id) Online</strong>
+                </div>
+            </div>
+
+            <div class="site-card-footer">
+                <span class="view-telemetry-btn">@(SelectedSiteId == site.Id ? "✓ Currently Active Facility" : "Select Plant →")</span>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- ADD PLANT FACILITY MODAL -->
+@if (IsAddModalOpen)
+{
+    <div class="modal-overlay" @onclick="() => IsAddModalOpen = false">
+        <div class="modal-card glass-card" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>🏭 Provision New Industrial Plant Site</h3>
+                <button class="modal-close" @onclick="() => IsAddModalOpen = false">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label>Facility Code *</label>
+                        <input type="text" class="custom-input" placeholder="e.g. PLANT-ISB" @bind="FormCode" />
+                        <small class="form-hint">Unique uppercase plant identifier code.</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Facility Name *</label>
+                        <input type="text" class="custom-input" placeholder="e.g. Islamabad Industrial Zone #3" @bind="FormName" />
+                    </div>
+
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>Physical Location / City *</label>
+                        <input type="text" class="custom-input" placeholder="e.g. I-9 Industrial Sector, Islamabad" @bind="FormLocation" />
+                    </div>
+
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>Plant Description &amp; Scope</label>
+                        <textarea class="custom-input" rows="3" placeholder="Primary manufacturing, water treatment, or utility plant" @bind="FormDescription"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary-scada" @onclick="() => IsAddModalOpen = false">Cancel</button>
+                <button class="btn-primary-scada" @onclick="SaveSiteAsync">Confirm &amp; Provision Site</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ScadaDemoTestApiClient.SiteDto> Sites = new();
+    private List<ScadaDemoTestApiClient.GatewayDeviceDto> Gateways = new();
+    private List<ScadaDemoTestApiClient.AttachedSensorDto> AllSensors = new();
+    private Guid? SelectedSiteId = null;
+
+    private bool IsAddModalOpen = false;
+    private string FormCode = "";
+    private string FormName = "";
+    private string FormLocation = "";
+    private string FormDescription = "";
+
+    private string? ToastMessage = null;
+    private bool ToastIsError = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSitesAsync();
+    }
+
+    private async Task LoadSitesAsync()
+    {
+        Sites = await Api.GetSitesAsync();
+        Gateways = await Api.GetGatewayDevicesAsync();
+        AllSensors = await Api.GetSensorsAsync();
+        if (Sites.Count > 0 && !SelectedSiteId.HasValue) SelectedSiteId = Sites[0].Id;
+    }
+
+    private int GetGatewayCount(Guid siteId) => Gateways.Count(g => g.SiteId == siteId);
+    private int GetSensorCount(Guid siteId)
+    {
+        var gwIds = Gateways.Where(g => g.SiteId == siteId).Select(g => g.Id).ToHashSet();
+        return AllSensors.Count(s => gwIds.Contains(s.DeviceId));
+    }
+    private int GetOnlineSensorCount(Guid siteId)
+    {
+        var gwIds = Gateways.Where(g => g.SiteId == siteId).Select(g => g.Id).ToHashSet();
+        return AllSensors.Count(s => gwIds.Contains(s.DeviceId) && s.IsOnline);
+    }
+
+    private async Task<bool> CheckPermissionAsync(string actionPermission)
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.HasClaim("IsSuperAdmin", "true") || user.IsInRole("SuperAdmin"))
+            return true;
+
+        if (user.HasClaim("perm", actionPermission) || user.HasClaim("perm", "MultiSite"))
+            return true;
+
+        return false;
+    }
+
+    private async Task OpenAddSiteModal()
+    {
+        if (!await CheckPermissionAsync("Sites.Manage"))
+        {
+            ShowToast("Access Denied: You do not have permission to add new plant facilities.", isError: true);
+            return;
+        }
+
+        FormCode = $"PLANT-SITE-{Sites.Count + 1:00}";
+        FormName = "";
+        FormLocation = "";
+        FormDescription = "";
+        IsAddModalOpen = true;
+    }
+
+    private async Task SaveSiteAsync()
+    {
+        if (string.IsNullOrWhiteSpace(FormCode) || string.IsNullOrWhiteSpace(FormName) || string.IsNullOrWhiteSpace(FormLocation))
+        {
+            ShowToast("Please enter site code, name, and location.", isError: true);
+            return;
+        }
+
+        var dto = new ScadaDemoTestApiClient.SiteDto(
+            Guid.Empty,
+            FormCode.Trim().ToUpperInvariant(),
+            FormName.Trim(),
+            FormLocation.Trim(),
+            FormDescription.Trim(),
+            DateTime.UtcNow
+        );
+
+        var (success, error) = await Api.CreateSiteAsync(dto);
+        if (success)
+        {
+            ShowToast($"Plant Facility '{FormName}' provisioned successfully!", isError: false);
+            IsAddModalOpen = false;
+            await LoadSitesAsync();
+        }
+        else
+        {
+            ShowToast(error ?? "Failed to create plant facility.", isError: true);
+        }
+    }
+
+    private void SelectSite(Guid id)
+    {
+        SelectedSiteId = id;
+    }
+
+    private void ShowToast(string msg, bool isError)
+    {
+        ToastMessage = msg;
+        ToastIsError = isError;
+        StateHasChanged();
+    }
+}

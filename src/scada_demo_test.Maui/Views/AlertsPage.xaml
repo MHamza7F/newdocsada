@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:scada_demo_test.Maui.ViewModels"
+             xmlns:entities="clr-namespace:scada_demo_test.Domain.Entities;assembly=scada_demo_test.Domain"
+             x:Class="scada_demo_test.Maui.Views.AlertsPage"
+             x:DataType="vm:AlertsViewModel"
+             x:Name="ThisAlertsPage"
+             Title="Alarms &amp; Incidents"
+             BackgroundColor="{StaticResource ScadaBgDark}">
+
+    <RefreshView IsRefreshing="{Binding IsBusy}" Command="{Binding LoadAlertsCommand}">
+        <ScrollView>
+            <VerticalStackLayout Padding="16" Spacing="16">
+
+                <!-- Header Section -->
+                <Grid ColumnDefinitions="*, Auto">
+                    <VerticalStackLayout Grid.Column="0" Spacing="2">
+                        <Label Text="Plant Alarms &amp; Safety Thresholds" Style="{StaticResource ScadaPageTitle}" />
+                        <Label Text="Critical incidents, flowrate warnings &amp; operator acknowledgments" Style="{StaticResource ScadaPageSubtitle}" />
+                    </VerticalStackLayout>
+
+                    <Border Grid.Column="1"
+                            StrokeShape="RoundRectangle 8"
+                            BackgroundColor="#2D1515"
+                            Stroke="{StaticResource ScadaRose}"
+                            Padding="12,6"
+                            VerticalOptions="Center">
+                        <Label Text="{Binding ActiveCount, StringFormat='{0} Active Alarms'}"
+                               TextColor="{StaticResource ScadaRose}"
+                               FontSize="12"
+                               FontAttributes="Bold" />
+                    </Border>
+                </Grid>
+
+                <!-- KPI Alarm Status Cards -->
+                <Grid ColumnDefinitions="*, *, *" ColumnSpacing="10">
+                    <Border Grid.Column="0" Style="{StaticResource ScadaCardStyle}">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Active Unack'd" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                            <Label Text="{Binding ActiveCount}" TextColor="{StaticResource ScadaRose}" FontSize="18" FontAttributes="Bold" />
+                        </VerticalStackLayout>
+                    </Border>
+
+                    <Border Grid.Column="1" Style="{StaticResource ScadaCardStyle}">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Critical" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                            <Label Text="{Binding CriticalCount}" TextColor="{StaticResource ScadaAmber}" FontSize="18" FontAttributes="Bold" />
+                        </VerticalStackLayout>
+                    </Border>
+
+                    <Border Grid.Column="2" Style="{StaticResource ScadaCardStyle}">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Configured Rules" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                            <Label Text="{Binding Rules.Count}" TextColor="{StaticResource ScadaCyan}" FontSize="18" FontAttributes="Bold" />
+                        </VerticalStackLayout>
+                    </Border>
+                </Grid>
+
+                <!-- Mode Switcher Tabs -->
+                <Grid ColumnDefinitions="*, *" ColumnSpacing="8">
+                    <Button Grid.Column="0"
+                            Text="🚨 Active Alarms"
+                            Command="{Binding SwitchViewCommand}"
+                            CommandParameter="Incidents"
+                            Style="{StaticResource ScadaOutlineBtn}"
+                            HeightRequest="36" />
+
+                    <Button Grid.Column="1"
+                            Text="⚙️ Threshold Rules"
+                            Command="{Binding SwitchViewCommand}"
+                            CommandParameter="Rules"
+                            Style="{StaticResource ScadaOutlineBtn}"
+                            HeightRequest="36" />
+                </Grid>
+
+                <!-- View 1: Incidents List -->
+                <CollectionView ItemsSource="{Binding Incidents}"
+                                SelectionMode="None"
+                                IsVisible="{Binding ShowIncidentsView}">
+                    <CollectionView.EmptyView>
+                        <VerticalStackLayout Padding="40" Spacing="8" HorizontalOptions="Center">
+                            <Label Text="✅" FontSize="36" HorizontalTextAlignment="Center" />
+                            <Label Text="No active alarm incidents. All plant systems nominal." TextColor="{StaticResource ScadaTextMuted}" HorizontalTextAlignment="Center" />
+                        </VerticalStackLayout>
+                    </CollectionView.EmptyView>
+
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="entities:AlertIncident">
+                            <Border Margin="0,0,0,12"
+                                    StrokeShape="RoundRectangle 12"
+                                    Stroke="{StaticResource ScadaBorder}"
+                                    BackgroundColor="{StaticResource ScadaBgSurface}"
+                                    Padding="16">
+                                <VerticalStackLayout Spacing="10">
+
+                                    <!-- Top Row: Severity & Device -->
+                                    <Grid ColumnDefinitions="Auto, *, Auto">
+                                        <Border Grid.Column="0"
+                                                StrokeShape="RoundRectangle 6"
+                                                BackgroundColor="#2D1515"
+                                                Stroke="{StaticResource ScadaRose}"
+                                                Padding="8,4"
+                                                Margin="0,0,10,0">
+                                            <Label Text="{Binding Severity}"
+                                                   TextColor="{StaticResource ScadaRose}"
+                                                   FontSize="11"
+                                                   FontAttributes="Bold" />
+                                        </Border>
+
+                                        <Label Grid.Column="1"
+                                               Text="{Binding DeviceExternalId}"
+                                               TextColor="{StaticResource ScadaTextPrimary}"
+                                               FontSize="15"
+                                               FontAttributes="Bold"
+                                               VerticalOptions="Center" />
+
+                                        <Label Grid.Column="2"
+                                               Text="{Binding TriggeredAt, StringFormat='{0:HH:mm:ss}'}"
+                                               TextColor="{StaticResource ScadaTextMuted}"
+                                               FontSize="11"
+                                               VerticalOptions="Center" />
+                                    </Grid>
+
+                                    <!-- Message & Value -->
+                                    <Label Text="{Binding Message}"
+                                           TextColor="{StaticResource ScadaTextSecondary}"
+                                           FontSize="13"
+                                           LineBreakMode="WordWrap" />
+
+                                    <Border StrokeShape="RoundRectangle 6"
+                                            BackgroundColor="{StaticResource ScadaBgCard}"
+                                            Padding="10,6">
+                                        <Grid ColumnDefinitions="*, *">
+                                            <Label Grid.Column="0"
+                                                   Text="{Binding Metric, StringFormat='Metric: {0}'}"
+                                                   TextColor="{StaticResource ScadaCyan}"
+                                                   FontSize="12" />
+                                            <Label Grid.Column="1"
+                                                   Text="{Binding TriggerValue, StringFormat='Trigger: {0:F1}'}"
+                                                   TextColor="{StaticResource ScadaRose}"
+                                                   FontSize="12"
+                                                   FontAttributes="Bold"
+                                                   HorizontalTextAlignment="End" />
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- Acknowledgment Row -->
+                                    <Grid ColumnDefinitions="*, Auto" Margin="0,4,0,0">
+                                        <Label Grid.Column="0"
+                                               Text="{Binding AcknowledgedBy, StringFormat='Ack by: {0}', FallbackValue='Status: Unacknowledged'}"
+                                               TextColor="{StaticResource ScadaTextDim}"
+                                               FontSize="11"
+                                               VerticalOptions="Center" />
+
+                                        <!-- Acknowledge Button -->
+                                        <Button Grid.Column="1"
+                                                Text="Acknowledge"
+                                                Command="{Binding BindingContext.AcknowledgeIncidentCommand, Source={x:Reference ThisAlertsPage}}"
+                                                CommandParameter="{Binding .}"
+                                                Style="{StaticResource ScadaOutlineBtn}"
+                                                HeightRequest="30"
+                                                Padding="10,0"
+                                                FontSize="11" />
+                                    </Grid>
+
+                                </VerticalStackLayout>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+                <!-- View 2: Threshold Rules List -->
+                <CollectionView ItemsSource="{Binding Rules}"
+                                SelectionMode="None"
+                                IsVisible="{Binding ShowIncidentsView, Converter={x:Null}}">
+                    <CollectionView.EmptyView>
+                        <VerticalStackLayout Padding="40" Spacing="8" HorizontalOptions="Center">
+                            <Label Text="⚙️" FontSize="36" HorizontalTextAlignment="Center" />
+                            <Label Text="No alert rules defined." TextColor="{StaticResource ScadaTextMuted}" HorizontalTextAlignment="Center" />
+                        </VerticalStackLayout>
+                    </CollectionView.EmptyView>
+
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="entities:AlertRule">
+                            <Border Margin="0,0,0,12"
+                                    StrokeShape="RoundRectangle 12"
+                                    Stroke="{StaticResource ScadaBorder}"
+                                    BackgroundColor="{StaticResource ScadaBgSurface}"
+                                    Padding="16">
+                                <VerticalStackLayout Spacing="8">
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <Label Grid.Column="0"
+                                               Text="{Binding Metric, StringFormat='Rule: {0}'}"
+                                               TextColor="{StaticResource ScadaTextPrimary}"
+                                               FontSize="15"
+                                               FontAttributes="Bold" />
+                                        <Border Grid.Column="1"
+                                                StrokeShape="RoundRectangle 6"
+                                                BackgroundColor="{StaticResource ScadaBgCard}"
+                                                Padding="8,3">
+                                            <Label Text="{Binding Severity}"
+                                                   TextColor="{StaticResource ScadaAmber}"
+                                                   FontSize="11"
+                                                   FontAttributes="Bold" />
+                                        </Border>
+                                    </Grid>
+
+                                    <Grid ColumnDefinitions="*, *">
+                                        <Label Grid.Column="0"
+                                               Text="{Binding DeviceExternalId, StringFormat='Target: {0}'}"
+                                               TextColor="{StaticResource ScadaCyan}"
+                                               FontSize="12" />
+                                        <Label Grid.Column="1"
+                                               Text="{Binding ThresholdValue, StringFormat='Threshold: {0:F1}'}"
+                                               TextColor="{StaticResource ScadaTextSecondary}"
+                                               FontSize="12"
+                                               HorizontalTextAlignment="End" />
+                                    </Grid>
+
+                                    <Label Text="{Binding NotificationEmail, StringFormat='Notify: {0}'}"
+                                           TextColor="{StaticResource ScadaTextDim}"
+                                           FontSize="11" />
+                                </VerticalStackLayout>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </RefreshView>
+</ContentPage>

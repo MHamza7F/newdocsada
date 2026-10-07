@@ -1,0 +1,446 @@
+@page "/reports"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Tab:Reports")]
+@using scada_demo_test.Web.Services
+@inject ScadaDemoTestApiClient Api
+@inject IJSRuntime JS
+
+<div class="page-header-flex">
+    <div>
+        <h1 class="page-title">Reports &amp; Data Export</h1>
+        <p class="page-subtitle">Real telemetry pulled from each sensor's own table - date-range analytics and CSV export</p>
+    </div>
+    <div class="header-actions">
+        <button class="btn-report-action pdf" @onclick="DownloadPdfAsync" disabled="@(Result is null)">
+            Export PDF
+        </button>
+        <button class="btn-report-action excel" @onclick="DownloadCsvAsync" disabled="@(Result is null)">
+            Export CSV
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(ToastMessage))
+{
+    <div class="scada-toast @(ToastIsError ? "error" : "success")">
+        <span>@ToastMessage</span>
+        <button class="toast-close" @onclick="() => ToastMessage = null">✕</button>
+    </div>
+}
+
+@if (AllSensors.Count == 0 && !Loading)
+{
+    <div class="glass-card" style="text-align:center;padding:3rem;">
+        <h3 style="color:var(--text-primary);">No Sensors Yet</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem;">
+            Add a gateway and attach its meters as sensors from the <strong>Gateways</strong> tab -
+            telemetry will be reportable here.
+        </p>
+    </div>
+}
+else
+{
+    <!-- Custom Date-Range Analytics Builder -->
+    <div class="glass-card report-builder-card">
+        <div class="builder-header">
+            <h3>Custom Date-Range Analytics</h3>
+            <span class="badge-accent">Live Telemetry (Raw Samples)</span>
+        </div>
+
+        <div class="report-controls-grid">
+            <div class="control-item">
+                <label>Sensor</label>
+                <select class="custom-select" @bind="SelectedSensorId">
+                    @foreach (var s in AllSensors)
+                    {
+                        <option value="@s.Id.ToString()">@s.Name (@s.UniqueSensorId - via @s.DeviceName)</option>
+                    }
+                </select>
+            </div>
+
+            <div class="control-item">
+                <label>Metric</label>
+                <select class="custom-select" @bind="SelectedMetric">
+                    <option value="Primary">Primary (@(SelectedSensor?.UnitPrimary ?? "-"))</option>
+                    <option value="Secondary">Secondary (@(SelectedSensor?.UnitSecondary ?? "-"))</option>
+                </select>
+            </div>
+
+            <div class="control-item">
+                <label>Start Date &amp; Time</label>
+                <input type="datetime-local" class="custom-input" @bind="FromLocal" />
+            </div>
+
+            <div class="control-item">
+                <label>End Date &amp; Time</label>
+                <input type="datetime-local" class="custom-input" @bind="ToLocal" />
+            </div>
+
+            <div class="control-item submit-item">
+                <button class="btn-primary-scada" @onclick="RunReportAsync" disabled="@Loading">
+                    @if (Loading) { <span>Analyzing...</span> }
+                    else { <span>Generate Analytics</span> }
+                </button>
+            </div>
+        </div>
+
+        <div class="preset-chips-row">
+            <span class="preset-label">Quick Ranges:</span>
+            <button class="chip" @onclick='() => ApplyPreset(TimeSpan.FromMinutes(30))'>Last 30 Min</button>
+            <button class="chip" @onclick='() => ApplyPreset(TimeSpan.FromHours(1))'>Last 1 Hour</button>
+            <button class="chip" @onclick='() => ApplyPreset(TimeSpan.FromHours(6))'>Last 6 Hours</button>
+            <button class="chip" @onclick='() => ApplyPreset(TimeSpan.FromHours(24))'>Last 24 Hours</button>
+            <button class="chip" @onclick='() => ApplyPreset(TimeSpan.FromDays(7))'>Last 7 Days</button>
+        </div>
+
+        @if (Error is not null)
+        {
+            <div class="report-error-box">
+                <span>⚠️ @Error</span>
+            </div>
+        }
+        else if (Result is not null)
+        {
+            <div class="report-results-pane">
+                <div class="summary-metrics-cards">
+                    <div class="stat-card">
+                        <span class="stat-label">Raw Samples</span>
+                        <strong class="stat-value">@Result.Count</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Average @Unit</span>
+                        <strong class="stat-value text-cyan">@Average.ToString("0.000") @Unit</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Peak Maximum</span>
+                        <strong class="stat-value text-warning">@Max.ToString("0.000") @Unit</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Minimum Recorded</span>
+                        <strong class="stat-value">@Min.ToString("0.000") @Unit</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Online Samples</span>
+                        <strong class="stat-value text-green">@OnlineCount / @Result.Count</strong>
+                    </div>
+                </div>
+
+                <div class="table-card glass-card" style="margin-top:20px;">
+                    <div class="table-card-header">
+                        <h4>Raw Telemetry Samples</h4>
+                        <span class="text-muted">@(SelectedSensor?.Name) - @FromLocal.ToString("g") to @ToLocal.ToString("g")</span>
+                    </div>
+                    <div class="table-responsive" style="max-height:420px;overflow-y:auto;">
+                        <table class="scada-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp (Local)</th>
+                                    <th>Status</th>
+                                    <th>@Unit</th>
+                                    <th>Secondary</th>
+                                    <th>Error Code</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{
+                                    var pagedSamples = Result.Skip((SamplePage - 1) * 25).Take(25);
+                                    foreach (var row in pagedSamples)
+                                    {
+                                        <tr>
+                                            <td>@row.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                            <td>
+                                                <span class="status-pill @(row.ConnectionStatus == 1 ? "online" : "offline")">
+                                                    <span class="status-dot"></span>@(row.ConnectionStatus == 1 ? "ONLINE" : "OFFLINE")
+                                                </span>
+                                            </td>
+                                            <td class="font-mono text-cyan">@MetricValue(row).ToString("0.000")</td>
+                                            <td class="font-mono">@row.SecondaryValue.ToString("0.000")</td>
+                                            <td>@(string.IsNullOrEmpty(row.ErrorCode) ? "-" : row.ErrorCode)</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @if (Result.Count > 0)
+                    {
+                        var totalSamplePages = Math.Max(1, (int)Math.Ceiling(Result.Count / 25.0));
+                        <div class="pagination-bar">
+                            <div class="pagination-info">
+                                Showing @((SamplePage - 1) * 25 + 1) to @(Math.Min(SamplePage * 25, Result.Count)) of @Result.Count samples (25 per page)
+                            </div>
+                            <div class="pagination-controls">
+                                <button class="pg-btn" disabled="@(SamplePage <= 1)" @onclick="() => SamplePage--">‹ Prev</button>
+                                @for (int p = 1; p <= totalSamplePages; p++)
+                                {
+                                    var pageNum = p;
+                                    <button class="pg-btn @(pageNum == SamplePage ? "active" : "")" @onclick="() => SamplePage = pageNum">@pageNum</button>
+                                }
+                                <button class="pg-btn" disabled="@(SamplePage >= totalSamplePages)" @onclick="() => SamplePage++">Next ›</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<!-- Sorted Gateway & Sensor Inventory -->
+<div class="glass-card" style="margin-top:28px; padding:20px;">
+    <div class="table-card-header">
+        <div>
+            <h3>Sorted Sensor Infrastructure by Gateway</h3>
+            <p class="text-muted">Multi-meter grouped inventory — click any sensor to quickly generate its telemetry report</p>
+        </div>
+        <span class="badge-accent">@AllSensors.Count Total Sensors</span>
+    </div>
+
+    @if (AllSensors.Count == 0)
+    {
+        <div class="text-muted text-center" style="padding:20px;">No registered sensors available.</div>
+    }
+    else
+    {
+        var groupedByDevice = AllSensors.GroupBy(s => s.DeviceName ?? "Unassigned Gateway").OrderBy(g => g.Key);
+        @foreach (var gwGroup in groupedByDevice)
+        {
+            var isGwOpen = ExpandedGateways.Contains(gwGroup.Key);
+            <div style="border:1px solid var(--border-color); border-radius:var(--radius-md); margin-bottom:14px; overflow:hidden; background:var(--bg-surface);">
+                <div style="padding:12px 16px; background:var(--bg-card-subtle); display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none;"
+                     @onclick="() => ToggleGatewayAccordion(gwGroup.Key)">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="font-size:14px; font-weight:700; color:var(--text-main);">🔌 @gwGroup.Key</span>
+                        <span class="status-pill online" style="font-size:10.5px;">@gwGroup.Count() Meter(s)</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:12px; color:var(--text-muted);">@(isGwOpen ? "▲ Hide Meters" : "▼ Expand Meters")</span>
+                    </div>
+                </div>
+
+                @if (isGwOpen)
+                {
+                    <div class="table-responsive" style="border-top:1px solid var(--border-color);">
+                        <table class="scada-table">
+                            <thead>
+                                <tr>
+                                    <th>Slave ID</th>
+                                    <th>Sensor Name</th>
+                                    <th>Driver / Family</th>
+                                    <th>Status</th>
+                                    <th>Latest Value</th>
+                                    <th>Last Seen</th>
+                                    <th style="text-align:right;">Quick Report</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var s in gwGroup.OrderBy(s => s.SlaveAddress))
+                                {
+                                    <tr style="@(s.Id == SelectedSensorId ? "background:var(--primary-blue-light);" : null)">
+                                        <td>
+                                            <span style="font-weight:700; font-family:monospace; background:var(--bg-card-subtle); padding:2px 7px; border-radius:4px; border:1px solid var(--border-color);">
+                                                Slave @s.SlaveAddress
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <strong>@s.Name</strong>
+                                            <div style="font-size:0.75rem; color:var(--text-muted); font-family:monospace;">@s.UniqueSensorId</div>
+                                        </td>
+                                        <td>@s.DriverDisplayName</td>
+                                        <td>
+                                            <span class="status-pill @(s.IsOnline ? "online" : "offline")">
+                                                <span class="status-dot"></span>@(s.IsOnline ? "ONLINE" : "OFFLINE")
+                                            </span>
+                                        </td>
+                                        <td class="font-mono text-cyan">
+                                            @(s.LatestPrimary.HasValue ? MetricValueFormat.Display(s.LatestPrimary.Value, s.UnitPrimary) : "--") @s.UnitPrimary
+                                        </td>
+                                        <td style="font-size:0.8rem; color:var(--text-muted);">
+                                            @(s.LatestTimestampUtc.HasValue ? s.LatestTimestampUtc.Value.ToLocalTime().ToString("HH:mm:ss") : "-")
+                                        </td>
+                                        <td style="text-align:right;">
+                                            <button class="btn-sm-report" @onclick="() => SelectSensorAndReport(s)">
+                                                📊 Select Sensor
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<ScadaDemoTestApiClient.AttachedSensorDto> AllSensors = new();
+    private HashSet<string> ExpandedGateways = new(StringComparer.OrdinalIgnoreCase);
+    private int SamplePage = 1;
+    private int SensorPage = 1;
+    private Guid SelectedSensorId;
+    private string SelectedMetric = "Primary";
+    private DateTime FromLocal = DateTime.Now.AddHours(-1);
+    private DateTime ToLocal = DateTime.Now;
+
+    private bool Loading = true;
+    private string? Error = null;
+    private string? ToastMessage = null;
+    private bool ToastIsError = false;
+    private List<ScadaDemoTestApiClient.SensorReadingDto> Result = new();
+    private int SamplesShown = 200;
+
+    private ScadaDemoTestApiClient.AttachedSensorDto? SelectedSensor =>
+        AllSensors.FirstOrDefault(s => s.Id == SelectedSensorId);
+
+    private string Unit => SelectedMetric == "Secondary" && SelectedSensor?.UnitSecondary is not null
+        ? SelectedSensor.UnitSecondary
+        : SelectedSensor?.UnitPrimary ?? "";
+
+    private double MetricValue(ScadaDemoTestApiClient.SensorReadingDto row) =>
+        SelectedMetric == "Secondary" ? row.SecondaryValue : row.PrimaryValue;
+
+    private double Average => Result.Count > 0 ? Result.Average(MetricValue) : 0;
+    private double Max => Result.Count > 0 ? Result.Max(MetricValue) : 0;
+    private double Min => Result.Count > 0 ? Result.Min(MetricValue) : 0;
+    private int OnlineCount => Result.Count(r => r.ConnectionStatus == 1);
+
+    private void ToggleGatewayAccordion(string key)
+    {
+        if (!ExpandedGateways.Add(key))
+        {
+            ExpandedGateways.Remove(key);
+        }
+    }
+
+    private async Task SelectSensorAndReport(ScadaDemoTestApiClient.AttachedSensorDto s)
+    {
+        SelectedSensorId = s.Id;
+        await RunReportAsync();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var devices = await Api.GetGatewayDevicesAsync();
+        AllSensors = new List<ScadaDemoTestApiClient.AttachedSensorDto>();
+        foreach (var d in devices)
+        {
+            var sensors = await Api.GetSensorsAsync(d.Id);
+            AllSensors.AddRange(sensors);
+            ExpandedGateways.Add(d.Name ?? "Unassigned Gateway");
+        }
+
+        if (AllSensors.Count > 0)
+        {
+            SelectedSensorId = AllSensors[0].Id;
+            Loading = false;
+            await RunReportAsync();
+        }
+        else
+        {
+            Loading = false;
+        }
+    }
+
+    private void ApplyPreset(TimeSpan span)
+    {
+        ToLocal = DateTime.Now;
+        FromLocal = ToLocal - span;
+        _ = RunReportAsync();
+    }
+
+    private async Task RunReportAsync()
+    {
+        if (SelectedSensorId == Guid.Empty) return;
+
+        Loading = true;
+        Error = null;
+        Result = new();
+        SamplesShown = 200;
+
+        try
+        {
+            if (ToLocal <= FromLocal)
+            {
+                Error = "End time must be after start time.";
+                return;
+            }
+
+            Result = await Api.GetSensorTelemetryRangeAsync(SelectedSensorId, FromLocal, ToLocal, limit: 2000);
+            if (Result.Count == 0)
+            {
+                Error = $"No telemetry found for '{SelectedSensor?.Name}' between {FromLocal:g} and {ToLocal:g}. This can happen when the gateway was offline in that window.";
+            }
+        }
+        catch (Exception ex)
+        {
+            Error = $"Failed to fetch report: {ex.Message}";
+        }
+        finally
+        {
+            Loading = false;
+        }
+    }
+
+    private async Task DownloadCsvAsync()
+    {
+        var sensor = SelectedSensor;
+        if (sensor is null || Result.Count == 0)
+        {
+            await ShowToast("Generate a report first.", isError: true);
+            return;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# Sensor,{sensor.Name},{sensor.UniqueSensorId}");
+        sb.AppendLine($"# Gateway,{sensor.DeviceName}");
+        sb.AppendLine($"# Range,{FromLocal:yyyy-MM-dd HH:mm} to {ToLocal:yyyy-MM-dd HH:mm} (local),metric={Unit}");
+        sb.AppendLine("TimestampUtc,Status,Error,Value,Unit,Secondary");
+        foreach (var r in Result.OrderBy(x => x.TimestampUtc))
+        {
+            sb.AppendLine($"{r.TimestampUtc:yyyy-MM-dd HH:mm:ss},{r.ConnectionStatus},{r.ErrorCode ?? ""},{MetricValue(r):0.000},{Unit},{r.SecondaryValue:0.000}");
+        }
+
+        var filename = $"telemetry_{sensor.UniqueSensorId}_{FromLocal:yyyyMMdd-HHmm}_{ToLocal:yyyyMMdd-HHmm}.csv";
+        await JS.InvokeVoidAsync("downloadTextFile", filename, sb.ToString(), "text/csv");
+        await ShowToast($"CSV exported - {Result.Count} rows.", isError: false);
+    }
+
+    private async Task DownloadPdfAsync()
+    {
+        var sensor = SelectedSensor;
+        if (sensor is null || Result.Count == 0)
+        {
+            await ShowToast("Generate a report first.", isError: true);
+            return;
+        }
+
+        var bytes = await Api.GetSensorTelemetryPdfAsync(sensor.Id, FromLocal, ToLocal);
+        if (bytes is null || bytes.Length == 0)
+        {
+            await ShowToast("PDF generation failed - try a smaller range.", isError: true);
+            return;
+        }
+
+        var base64 = Convert.ToBase64String(bytes);
+        var filename = $"telemetry_{sensor.UniqueSensorId}_{FromLocal:yyyyMMdd-HHmm}_{ToLocal:yyyyMMdd-HHmm}.pdf";
+        await JS.InvokeVoidAsync("downloadBlob", filename, base64, "application/pdf");
+        await ShowToast($"PDF exported - {Result.Count} rows.", isError: false);
+    }
+
+    private int _toastSeq;
+    private async Task ShowToast(string message, bool isError)
+    {
+        var seq = ++_toastSeq;
+        ToastMessage = message;
+        ToastIsError = isError;
+        StateHasChanged();
+        await Task.Delay(1700);
+        if (_toastSeq == seq && ToastMessage == message)
+        {
+            ToastMessage = null;
+            StateHasChanged();
+        }
+    }
+}

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="9.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Only for scada_demo_test.Domain.Constants.AppTabs (plain strings, zero EF/Identity
+         dependency) so the nav menu / page policies can share tab names with the API.
+         Web still talks to scada_demo_test.API purely over HTTP for everything else. -->
+    <ProjectReference Include="..\scada_demo_test.Domain\scada_demo_test.Domain.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

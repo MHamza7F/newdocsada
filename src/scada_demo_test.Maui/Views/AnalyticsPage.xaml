@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:scada_demo_test.Maui.ViewModels"
+             xmlns:controls="clr-namespace:scada_demo_test.Maui.Controls"
+             xmlns:models="clr-namespace:scada_demo_test.Maui.Models"
+             x:Class="scada_demo_test.Maui.Views.AnalyticsPage"
+             x:DataType="vm:AnalyticsViewModel"
+             Title="Analytics &amp; Storage">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16" Spacing="16">
+            <!-- Header Section -->
+            <VerticalStackLayout Spacing="2">
+                <Label Text="Analytics &amp; Plant Assets"
+                       Style="{StaticResource ScadaPageTitle}" />
+                <Label Text="Fluid storage inventory, thermal telemetry &amp; sensor matrix"
+                       Style="{StaticResource ScadaPageSubtitle}" />
+            </VerticalStackLayout>
+
+            <!-- Sub-Tab Switcher Buttons -->
+            <Grid ColumnDefinitions="*, *" ColumnSpacing="10">
+                <Button Grid.Column="0"
+                        Text="🛢️ Storage Tanks"
+                        Style="{StaticResource ScadaPrimaryBtn}"
+                        Command="{Binding SelectTabCommand}"
+                        CommandParameter="{x:Int32 0}" />
+
+                <Button Grid.Column="1"
+                        Text="📋 Sensor Grid Matrix"
+                        Style="{StaticResource ScadaOutlineBtn}"
+                        Command="{Binding SelectTabCommand}"
+                        CommandParameter="{x:Int32 1}" />
+            </Grid>
+
+            <!-- Plant Storage Overview Bar -->
+            <Border Style="{StaticResource ScadaCardStyle}">
+                <Grid ColumnDefinitions="*, *, *" ColumnSpacing="8">
+                    <VerticalStackLayout Grid.Column="0" Spacing="2">
+                        <Label Text="Total Capacity" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                        <Label Text="{Binding FormattedTotalStorage}" TextColor="{StaticResource ScadaTextPrimary}" FontSize="14" FontAttributes="Bold" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Grid.Column="1" Spacing="2">
+                        <Label Text="Current Stored" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                        <Label Text="{Binding FormattedStoredFluid}" TextColor="{StaticResource ScadaCyan}" FontSize="14" FontAttributes="Bold" />
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Grid.Column="2" Spacing="2">
+                        <Label Text="Avg Plant Level" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                        <Label Text="{Binding FormattedAvgLevel}" TextColor="{StaticResource ScadaEmerald}" FontSize="14" FontAttributes="Bold" />
+                    </VerticalStackLayout>
+                </Grid>
+            </Border>
+
+            <!-- VIEW 1: Storage Tanks Farm (Visible when SelectedTabIndex == 0) -->
+            <VerticalStackLayout Spacing="12">
+                <Label Text="Active Storage Tanks"
+                       TextColor="{StaticResource ScadaTextPrimary}"
+                       FontSize="16"
+                       FontAttributes="Bold" />
+
+                <CollectionView ItemsSource="{Binding Tanks}" SelectionMode="None">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="models:StorageTankModel">
+                            <controls:TankGaugeView BindingContext="{Binding .}" />
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </VerticalStackLayout>
+
+            <!-- VIEW 2: Sensor Data Matrix / Tabular Grid -->
+            <VerticalStackLayout Spacing="12" Margin="0,12,0,0">
+                <Label Text="Live Sensor Input Register Matrix"
+                       TextColor="{StaticResource ScadaTextPrimary}"
+                       FontSize="16"
+                       FontAttributes="Bold" />
+
+                <!-- Table Header -->
+                <Border StrokeShape="RoundRectangle 6"
+                        BackgroundColor="#111827"
+                        Stroke="#374151"
+                        Padding="12,8">
+                    <Grid ColumnDefinitions="1.2*, 1.8*, 1.4*, Auto">
+                        <Label Grid.Column="0" Text="Tag" TextColor="{StaticResource ScadaCyan}" FontSize="11" FontAttributes="Bold" />
+                        <Label Grid.Column="1" Text="Parameter" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" FontAttributes="Bold" />
+                        <Label Grid.Column="2" Text="Current Reading" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" FontAttributes="Bold" />
+                        <Label Grid.Column="3" Text="Status" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" FontAttributes="Bold" />
+                    </Grid>
+                </Border>
+
+                <!-- Table Rows -->
+                <CollectionView ItemsSource="{Binding SensorGrid}" SelectionMode="None">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="models:SensorGridRow">
+                            <Border StrokeShape="RoundRectangle 4"
+                                    BackgroundColor="#1F2937"
+                                    Stroke="#374151"
+                                    Padding="12,10"
+                                    Margin="0,0,0,6">
+                                <Grid ColumnDefinitions="1.2*, 1.8*, 1.4*, Auto" VerticalOptions="Center">
+                                    <Label Grid.Column="0" Text="{Binding DeviceTag}" TextColor="{StaticResource ScadaTextPrimary}" FontSize="11" FontAttributes="Bold" />
+                                    <Label Grid.Column="1" Text="{Binding Parameter}" TextColor="{StaticResource ScadaTextSecondary}" FontSize="11" LineBreakMode="TailTruncation" />
+                                    <Label Grid.Column="2" Text="{Binding FormattedCurrent}" TextColor="{StaticResource ScadaCyan}" FontSize="11" FontAttributes="Bold" />
+                                    <Label Grid.Column="3" Text="{Binding Status}" TextColor="{StaticResource ScadaEmerald}" FontSize="11" FontAttributes="Bold" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </VerticalStackLayout>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

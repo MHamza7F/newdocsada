@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:scada_demo_test.Maui.ViewModels"
+             xmlns:models="clr-namespace:scada_demo_test.Maui.Models"
+             x:Class="scada_demo_test.Maui.Views.LogsPage"
+             x:DataType="vm:LogsViewModel"
+             Title="Register Logs">
+
+    <Grid RowDefinitions="Auto, *" Padding="16" RowSpacing="12">
+        <!-- Header & Action Toolbar -->
+        <VerticalStackLayout Grid.Row="0" Spacing="10">
+            <Grid ColumnDefinitions="*, Auto" VerticalOptions="Center">
+                <VerticalStackLayout Grid.Column="0" Spacing="2">
+                    <Label Text="Modbus Register Stream"
+                           Style="{StaticResource ScadaPageTitle}" />
+                    <Label Text="Real-time value.txt payload logs &amp; CRC checks"
+                           Style="{StaticResource ScadaPageSubtitle}" />
+                </VerticalStackLayout>
+
+                <!-- Buffer Count Badge -->
+                <Border Grid.Column="1"
+                        StrokeShape="RoundRectangle 12"
+                        BackgroundColor="#111827"
+                        Stroke="{StaticResource ScadaCyan}"
+                        Padding="8,4"
+                        VerticalOptions="Center">
+                    <Label Text="{Binding LogCount, StringFormat='{0} Packets'}"
+                           TextColor="{StaticResource ScadaCyan}"
+                           FontSize="11"
+                           FontAttributes="Bold" />
+                </Border>
+            </Grid>
+
+            <!-- Action Buttons -->
+            <Grid ColumnDefinitions="*, *, *" ColumnSpacing="8">
+                <Button Grid.Column="0"
+                        Text="{Binding PauseResumeButtonText}"
+                        TextTransform="None"
+                        Style="{StaticResource ScadaOutlineBtn}"
+                        HeightRequest="36"
+                        FontSize="11"
+                        Command="{Binding TogglePauseCommand}" />
+
+                <Button Grid.Column="1"
+                        Text="🗑️ Clear"
+                        TextTransform="None"
+                        Style="{StaticResource ScadaOutlineBtn}"
+                        HeightRequest="36"
+                        FontSize="11"
+                        Command="{Binding ClearLogsCommand}" />
+
+                <Button Grid.Column="2"
+                        Text="📋 Copy Dump"
+                        TextTransform="None"
+                        Style="{StaticResource ScadaPrimaryBtn}"
+                        HeightRequest="36"
+                        FontSize="11"
+                        Command="{Binding ExportLogsCommand}" />
+            </Grid>
+        </VerticalStackLayout>
+
+        <!-- Streaming Log Terminal View -->
+        <Border Grid.Row="1"
+                StrokeShape="RoundRectangle 8"
+                BackgroundColor="#080C14"
+                Stroke="#374151"
+                StrokeThickness="1"
+                Padding="8">
+            <CollectionView ItemsSource="{Binding ModbusLogs}"
+                            SelectionMode="None">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="models:ModbusLogEntry">
+                        <Border StrokeShape="RoundRectangle 4"
+                                BackgroundColor="#0F172A"
+                                Stroke="#1E293B"
+                                StrokeThickness="1"
+                                Padding="10,8"
+                                Margin="0,0,0,6">
+                            <VerticalStackLayout Spacing="4">
+                                <!-- Top Row: Timestamp & Status -->
+                                <Grid ColumnDefinitions="Auto, *, Auto">
+                                    <Label Grid.Column="0"
+                                           Text="{Binding FormattedTimestamp}"
+                                           TextColor="{StaticResource ScadaTextMuted}"
+                                           FontFamily="Consolas"
+                                           FontSize="11" />
+                                    <Label Grid.Column="1"
+                                           Text="{Binding DeviceId, StringFormat=' [{0}]'}"
+                                           TextColor="{StaticResource ScadaCyan}"
+                                           FontFamily="Consolas"
+                                           FontSize="11"
+                                           FontAttributes="Bold" />
+                                    <Label Grid.Column="2"
+                                           Text="{Binding Status}"
+                                           TextColor="{Binding StatusColor}"
+                                           FontFamily="Consolas"
+                                           FontSize="11"
+                                           FontAttributes="Bold" />
+                                </Grid>
+
+                                <!-- Middle Row: Register & Value -->
+                                <Grid ColumnDefinitions="*, Auto">
+                                    <Label Grid.Column="0"
+                                           Text="{Binding RegisterAddress, StringFormat='Reg {0} ({1})'}"
+                                           TextColor="{StaticResource ScadaTextSecondary}"
+                                           FontSize="12" />
+                                    <Label Grid.Column="1"
+                                           Text="{Binding FormattedValue}"
+                                           TextColor="{StaticResource ScadaTextPrimary}"
+                                           FontFamily="Consolas"
+                                           FontSize="12"
+                                           FontAttributes="Bold" />
+                                </Grid>
+
+                                <!-- Bottom Row: Raw Hex Dump -->
+                                <Label Text="{Binding RawHexPayload, StringFormat='HEX: {0}'}"
+                                       TextColor="{StaticResource ScadaAmber}"
+                                       FontFamily="Consolas"
+                                       FontSize="10" />
+                            </VerticalStackLayout>
+                        </Border>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </Border>
+    </Grid>
+</ContentPage>

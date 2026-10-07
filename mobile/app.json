@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "SCADA Industrial Monitor",
+    "slug": "scada-industrial-monitor",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0F17"
+      }
+    }
+  }
+}

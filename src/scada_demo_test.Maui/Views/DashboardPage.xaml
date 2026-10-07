@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:scada_demo_test.Maui.ViewModels"
+             xmlns:controls="clr-namespace:scada_demo_test.Maui.Controls"
+             xmlns:models="clr-namespace:scada_demo_test.Maui.Models"
+             x:Class="scada_demo_test.Maui.Views.DashboardPage"
+             x:DataType="vm:DashboardViewModel"
+             Title="Plant Monitoring">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16" Spacing="16">
+            <!-- Header Section -->
+            <Grid ColumnDefinitions="*, Auto" VerticalOptions="Center">
+                <VerticalStackLayout Grid.Column="0" Spacing="2">
+                    <Label Text="Utility Monitoring &amp; Telemetry"
+                           Style="{StaticResource ScadaPageTitle}" />
+                    <Label Text="Real-time flow rates, totalizers &amp; asset streams"
+                           Style="{StaticResource ScadaPageSubtitle}" />
+                </VerticalStackLayout>
+
+                <!-- Action Toolbar Buttons -->
+                <HorizontalStackLayout Grid.Column="1" Spacing="8" VerticalOptions="Center">
+                    <Button Text="{Binding PauseResumeButtonText}"
+                            TextTransform="None"
+                            Style="{StaticResource ScadaOutlineBtn}"
+                            HeightRequest="36"
+                            Padding="10,0"
+                            Command="{Binding ToggleStreamPauseCommand}" />
+
+                    <Button Text="🔄 Refresh"
+                            TextTransform="None"
+                            Style="{StaticResource ScadaOutlineBtn}"
+                            HeightRequest="36"
+                            Padding="10,0"
+                            Command="{Binding RefreshCommand}" />
+                </HorizontalStackLayout>
+            </Grid>
+
+            <!-- Status & Resilience Banner -->
+            <controls:StatusBanner StatusText="{Binding ConnectionStatus}"
+                                   BadgeColor="{Binding ConnectionBadgeColor}"
+                                   IsFallback="{Binding IsFallbackActive}" />
+
+            <!-- KPI Plant Summary Cards -->
+            <Grid ColumnDefinitions="*, *" RowDefinitions="Auto, Auto" ColumnSpacing="10" RowSpacing="10">
+                <!-- Total Flow -->
+                <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource ScadaCardStyle}">
+                    <VerticalStackLayout Spacing="2">
+                        <Label Text="Total Plant Flow" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                        <Label Text="{Binding Summary.FormattedTotalFlow}" TextColor="{StaticResource ScadaCyan}" FontSize="18" FontAttributes="Bold" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Cumulative Volume -->
+                <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource ScadaCardStyle}">
+                    <VerticalStackLayout Spacing="2">
+                        <Label Text="Cumulative Volume" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                        <Label Text="{Binding Summary.FormattedTotalVolume}" TextColor="{StaticResource ScadaTextPrimary}" FontSize="18" FontAttributes="Bold" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Avg Tank Level -->
+                <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource ScadaCardStyle}">
+                    <VerticalStackLayout Spacing="2">
+                        <Label Text="Average Storage Level" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                        <Label Text="{Binding Summary.FormattedAvgTankLevel}" TextColor="{StaticResource ScadaEmerald}" FontSize="18" FontAttributes="Bold" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Online Status -->
+                <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource ScadaCardStyle}">
+                    <VerticalStackLayout Spacing="2">
+                        <Label Text="Meters Online" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                        <Label Text="{Binding Summary.FormattedMeterStatus}" TextColor="{StaticResource ScadaTextPrimary}" FontSize="18" FontAttributes="Bold" />
+                    </VerticalStackLayout>
+                </Border>
+            </Grid>
+
+            <!-- Flowmeter Stream Section Title -->
+            <Grid ColumnDefinitions="*, Auto" Margin="0,4,0,0">
+                <Label Grid.Column="0"
+                       Text="Connected Industrial Flowmeters"
+                       TextColor="{StaticResource ScadaTextPrimary}"
+                       FontSize="16"
+                       FontAttributes="Bold" />
+                <Label Grid.Column="1"
+                       Text="{Binding Meters.Count, StringFormat='{0} Active Nodes'}"
+                       TextColor="{StaticResource ScadaTextMuted}"
+                       FontSize="12" />
+            </Grid>
+
+            <!-- Flowmeters List -->
+            <CollectionView ItemsSource="{Binding Meters}"
+                            SelectionMode="None">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="models:FlowMeterModel">
+                        <controls:FlowMeterCard BindingContext="{Binding .}" />
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

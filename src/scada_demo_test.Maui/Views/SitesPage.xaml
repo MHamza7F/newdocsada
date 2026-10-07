@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:scada_demo_test.Maui.ViewModels"
+             xmlns:entities="clr-namespace:scada_demo_test.Domain.Entities;assembly=scada_demo_test.Domain"
+             x:Class="scada_demo_test.Maui.Views.SitesPage"
+             x:DataType="vm:SitesViewModel"
+             Title="Plant Locations"
+             BackgroundColor="{StaticResource ScadaBgDark}">
+
+    <RefreshView IsRefreshing="{Binding IsBusy}" Command="{Binding LoadSitesCommand}">
+        <ScrollView>
+            <VerticalStackLayout Padding="16" Spacing="16">
+
+                <!-- Header Section -->
+                <Grid ColumnDefinitions="*, Auto">
+                    <VerticalStackLayout Grid.Column="0" Spacing="2">
+                        <Label Text="Plant Locations &amp; Facilities" Style="{StaticResource ScadaPageTitle}" />
+                        <Label Text="Enterprise multi-facility telemetry nodes" Style="{StaticResource ScadaPageSubtitle}" />
+                    </VerticalStackLayout>
+
+                    <Border Grid.Column="1"
+                            StrokeShape="RoundRectangle 8"
+                            Stroke="{StaticResource ScadaBorder}"
+                            BackgroundColor="{StaticResource ScadaBgSurface}"
+                            Padding="12,6"
+                            VerticalOptions="Center">
+                        <Label Text="{Binding TotalSitesCount, StringFormat='{0} Active Plants'}"
+                               TextColor="{StaticResource ScadaCyan}"
+                               FontSize="12"
+                               FontAttributes="Bold" />
+                    </Border>
+                </Grid>
+
+                <!-- Search Input Bar -->
+                <Border StrokeShape="RoundRectangle 8"
+                        Stroke="{StaticResource ScadaBorder}"
+                        BackgroundColor="{StaticResource ScadaBgSurface}"
+                        Padding="12,2">
+                    <Grid ColumnDefinitions="Auto, *">
+                        <Label Grid.Column="0" Text="🔍" FontSize="14" VerticalOptions="Center" Margin="0,0,8,0" />
+                        <Entry Grid.Column="1"
+                               Text="{Binding SearchText}"
+                               Placeholder="Filter plants by name, code or city..."
+                               PlaceholderColor="{StaticResource ScadaTextDim}"
+                               TextColor="{StaticResource ScadaTextPrimary}"
+                               ClearButtonVisibility="WhileEditing" />
+                    </Grid>
+                </Border>
+
+                <!-- Sites Collection -->
+                <CollectionView ItemsSource="{Binding Sites}" SelectionMode="None">
+                    <CollectionView.EmptyView>
+                        <VerticalStackLayout Padding="40" Spacing="8" HorizontalOptions="Center">
+                            <Label Text="🏭" FontSize="36" HorizontalTextAlignment="Center" />
+                            <Label Text="No plant facilities found." TextColor="{StaticResource ScadaTextMuted}" HorizontalTextAlignment="Center" />
+                        </VerticalStackLayout>
+                    </CollectionView.EmptyView>
+
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="entities:Site">
+                            <Border Margin="0,0,0,12"
+                                    StrokeShape="RoundRectangle 12"
+                                    Stroke="{StaticResource ScadaBorder}"
+                                    BackgroundColor="{StaticResource ScadaBgSurface}"
+                                    Padding="16">
+                                <VerticalStackLayout Spacing="10">
+                                    <Grid ColumnDefinitions="Auto, *, Auto">
+                                        <Border Grid.Column="0"
+                                                StrokeShape="RoundRectangle 6"
+                                                BackgroundColor="#0F352E"
+                                                Stroke="{StaticResource ScadaEmerald}"
+                                                Padding="8,4"
+                                                Margin="0,0,10,0">
+                                            <Label Text="{Binding Code}"
+                                                   TextColor="{StaticResource ScadaEmerald}"
+                                                   FontSize="11"
+                                                   FontAttributes="Bold" />
+                                        </Border>
+
+                                        <Label Grid.Column="1"
+                                               Text="{Binding Name}"
+                                               TextColor="{StaticResource ScadaTextPrimary}"
+                                               FontSize="16"
+                                               FontAttributes="Bold"
+                                               VerticalOptions="Center" />
+
+                                        <HorizontalStackLayout Grid.Column="2" Spacing="4" VerticalOptions="Center">
+                                            <BoxView Color="{StaticResource ScadaEmerald}" WidthRequest="8" HeightRequest="8" CornerRadius="4" VerticalOptions="Center" />
+                                            <Label Text="Online" TextColor="{StaticResource ScadaEmerald}" FontSize="11" FontAttributes="Bold" />
+                                        </HorizontalStackLayout>
+                                    </Grid>
+
+                                    <HorizontalStackLayout Spacing="6">
+                                        <Label Text="📍" FontSize="12" VerticalOptions="Center" />
+                                        <Label Text="{Binding Location}" TextColor="{StaticResource ScadaTextSecondary}" FontSize="13" />
+                                    </HorizontalStackLayout>
+
+                                    <Label Text="{Binding Description}"
+                                           TextColor="{StaticResource ScadaTextMuted}"
+                                           FontSize="12"
+                                           LineBreakMode="WordWrap" />
+
+                                    <BoxView HeightRequest="1" Color="{StaticResource ScadaBorder}" Margin="0,4" />
+
+                                    <Grid ColumnDefinitions="*, *">
+                                        <Label Grid.Column="0"
+                                               Text="Telemetry Link: Active"
+                                               TextColor="{StaticResource ScadaCyan}"
+                                               FontSize="11" />
+                                        <Label Grid.Column="1"
+                                               Text="{Binding CreatedAt, StringFormat='Added: {0:MMM dd, yyyy}'}"
+                                               TextColor="{StaticResource ScadaTextDim}"
+                                               FontSize="11"
+                                               HorizontalTextAlignment="End" />
+                                    </Grid>
+                                </VerticalStackLayout>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </RefreshView>
+</ContentPage>

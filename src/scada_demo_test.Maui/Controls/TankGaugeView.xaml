@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:models="clr-namespace:scada_demo_test.Maui.Models"
+             x:Class="scada_demo_test.Maui.Controls.TankGaugeView"
+             x:DataType="models:StorageTankModel">
+
+    <Border Style="{StaticResource ScadaCardStyle}" Margin="0,0,0,12">
+        <VerticalStackLayout Spacing="10">
+            <!-- Header: Tank Code & Status -->
+            <Grid ColumnDefinitions="*, Auto" VerticalOptions="Center">
+                <VerticalStackLayout Grid.Column="0" Spacing="2">
+                    <Label Text="{Binding Name}"
+                           TextColor="{StaticResource ScadaTextPrimary}"
+                           FontSize="15"
+                           FontAttributes="Bold" />
+                    <Label Text="{Binding TankCode}"
+                           TextColor="{StaticResource ScadaTextMuted}"
+                           FontSize="11" />
+                </VerticalStackLayout>
+
+                <!-- Liquid Type Tag -->
+                <Border Grid.Column="1"
+                        StrokeShape="RoundRectangle 6"
+                        BackgroundColor="#111827"
+                        Stroke="#374151"
+                        Padding="6,3">
+                    <Label Text="{Binding LiquidType}"
+                           TextColor="{StaticResource ScadaCyan}"
+                           FontSize="11"
+                           FontAttributes="Bold" />
+                </Border>
+            </Grid>
+
+            <!-- Visual Progress Bar / Tank Level -->
+            <VerticalStackLayout Spacing="4">
+                <Grid ColumnDefinitions="*, Auto">
+                    <Label Grid.Column="0"
+                           Text="Fluid Level"
+                           TextColor="{StaticResource ScadaTextMuted}"
+                           FontSize="12" />
+                    <Label Grid.Column="1"
+                           Text="{Binding FormattedLevel}"
+                           TextColor="{StaticResource ScadaCyan}"
+                           FontSize="14"
+                           FontAttributes="Bold" />
+                </Grid>
+
+                <!-- Progress Track -->
+                <ProgressBar Progress="{Binding LevelRatio}"
+                             ProgressColor="{StaticResource ScadaCyan}"
+                             HeightRequest="8" />
+            </VerticalStackLayout>
+
+            <!-- Volume & Thermal Stats -->
+            <Grid ColumnDefinitions="*, *, *" ColumnSpacing="8">
+                <!-- Stored Volume -->
+                <Border Grid.Column="0"
+                        StrokeShape="RoundRectangle 6"
+                        BackgroundColor="#111827"
+                        Stroke="#374151"
+                        Padding="8,6">
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="{Binding FormattedVolume}"
+                               TextColor="{StaticResource ScadaTextPrimary}"
+                               FontSize="12"
+                               FontAttributes="Bold" />
+                        <Label Text="Volume"
+                               TextColor="{StaticResource ScadaTextMuted}"
+                               FontSize="10" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Net Flow Rate -->
+                <Border Grid.Column="1"
+                        StrokeShape="RoundRectangle 6"
+                        BackgroundColor="#111827"
+                        Stroke="#374151"
+                        Padding="8,6">
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="{Binding FormattedNetFlow}"
+                               TextColor="{StaticResource ScadaEmerald}"
+                               FontSize="12"
+                               FontAttributes="Bold" />
+                        <Label Text="Net Flow"
+                               TextColor="{StaticResource ScadaTextMuted}"
+                               FontSize="10" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <!-- Temperature -->
+                <Border Grid.Column="2"
+                        StrokeShape="RoundRectangle 6"
+                        BackgroundColor="#111827"
+                        Stroke="#374151"
+                        Padding="8,6">
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="{Binding FormattedTemperature}"
+                               TextColor="{StaticResource ScadaAmber}"
+                               FontSize="12"
+                               FontAttributes="Bold" />
+                        <Label Text="Temp"
+                               TextColor="{StaticResource ScadaTextMuted}"
+                               FontSize="10" />
+                    </VerticalStackLayout>
+                </Border>
+            </Grid>
+        </VerticalStackLayout>
+    </Border>
+</ContentView>

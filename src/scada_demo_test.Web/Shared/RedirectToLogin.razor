@@ -1,0 +1,20 @@
+@inject NavigationManager Nav
+
+@code {
+    protected override void OnInitialized()
+    {
+        if (!Nav.ToBaseRelativePath(Nav.Uri).StartsWith("login", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                Nav.NavigateTo("/login", forceLoad: true, replace: true);
+            }
+            catch (NavigationException)
+            {
+                // NavigationException is how the framework aborts the in-flight render once
+                // the redirect has been queued. Swallowing it here keeps the debugger from
+                // breaking on a thrown exception that is already handled by the router.
+            }
+        }
+    }
+}

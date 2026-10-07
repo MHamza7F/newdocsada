@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<?xaml-comp compile="true" ?>
+<ResourceDictionary 
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+
+    <!-- Page Base Style -->
+    <Style TargetType="ContentPage" ApplyToDerivedTypes="True">
+        <Setter Property="BackgroundColor" Value="{StaticResource ScadaBgDark}" />
+    </Style>
+
+    <!-- Shell Base Style -->
+    <Style TargetType="Shell" ApplyToDerivedTypes="True">
+        <Setter Property="Shell.BackgroundColor" Value="{StaticResource ScadaBgDark}" />
+        <Setter Property="Shell.ForegroundColor" Value="{StaticResource ScadaTextPrimary}" />
+        <Setter Property="Shell.TitleColor" Value="{StaticResource ScadaTextPrimary}" />
+        <Setter Property="Shell.DisabledColor" Value="{StaticResource ScadaTextDim}" />
+        <Setter Property="Shell.UnselectedColor" Value="{StaticResource ScadaTextMuted}" />
+        <Setter Property="Shell.TabBarBackgroundColor" Value="{StaticResource ScadaBgSurface}" />
+        <Setter Property="Shell.TabBarForegroundColor" Value="{StaticResource ScadaCyan}" />
+        <Setter Property="Shell.TabBarTitleColor" Value="{StaticResource ScadaCyan}" />
+        <Setter Property="Shell.TabBarUnselectedColor" Value="{StaticResource ScadaTextMuted}" />
+    </Style>
+
+    <!-- Glass/Surface Border Card -->
+    <Style x:Key="ScadaCardStyle" TargetType="Border">
+        <Setter Property="BackgroundColor" Value="{StaticResource ScadaBgSurface}" />
+        <Setter Property="Stroke" Value="{StaticResource ScadaBorder}" />
+        <Setter Property="StrokeThickness" Value="1" />
+        <Setter Property="StrokeShape" Value="RoundRectangle 12" />
+        <Setter Property="Padding" Value="16" />
+    </Style>
+
+    <!-- Primary Industrial Button -->
+    <Style x:Key="ScadaPrimaryBtn" TargetType="Button">
+        <Setter Property="BackgroundColor" Value="{StaticResource ScadaBlue}" />
+        <Setter Property="TextColor" Value="#FFFFFF" />
+        <Setter Property="FontAttributes" Value="Bold" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="HeightRequest" Value="44" />
+        <Setter Property="Padding" Value="12,0" />
+    </Style>
+
+    <!-- Outline Action Button -->
+    <Style x:Key="ScadaOutlineBtn" TargetType="Button">
+        <Setter Property="BackgroundColor" Value="Transparent" />
+        <Setter Property="BorderColor" Value="{StaticResource ScadaBorderLight}" />
+        <Setter Property="BorderWidth" Value="1" />
+        <Setter Property="TextColor" Value="{StaticResource ScadaTextPrimary}" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="HeightRequest" Value="40" />
+        <Setter Property="Padding" Value="12,0" />
+    </Style>
+
+    <!-- Header Titles -->
+    <Style x:Key="ScadaPageTitle" TargetType="Label">
+        <Setter Property="TextColor" Value="{StaticResource ScadaTextPrimary}" />
+        <Setter Property="FontSize" Value="20" />
+        <Setter Property="FontAttributes" Value="Bold" />
+    </Style>
+
+    <Style x:Key="ScadaPageSubtitle" TargetType="Label">
+        <Setter Property="TextColor" Value="{StaticResource ScadaTextMuted}" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <!-- Telemetry Readout Labels -->
+    <Style x:Key="ScadaFlowValueLabel" TargetType="Label">
+        <Setter Property="TextColor" Value="{StaticResource ScadaCyan}" />
+        <Setter Property="FontSize" Value="26" />
+        <Setter Property="FontAttributes" Value="Bold" />
+        <Setter Property="FontFamily" Value="Consolas" />
+    </Style>
+
+    <Style x:Key="ScadaTotalizerLabel" TargetType="Label">
+        <Setter Property="TextColor" Value="{StaticResource ScadaTextPrimary}" />
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="FontAttributes" Value="Bold" />
+        <Setter Property="FontFamily" Value="Consolas" />
+    </Style>
+
+</ResourceDictionary>

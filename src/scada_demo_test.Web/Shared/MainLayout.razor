@@ -1,0 +1,106 @@
+@inherits LayoutComponentBase
+@using scada_demo_test.Web.Services
+@inject LiveTelemetryState Live
+@implements IDisposable
+
+@* This is the ONE master layout - every page (Monitoring, Summary, Charts,
+   Reports...) renders inside it, so sidebar/topbar/footer only exist here once. *@
+
+@if (_alertToasts.Count > 0)
+{
+    <div class="alert-toast-stack">
+        @foreach (var toast in _alertToasts)
+        {
+            <div class="alert-toast @SeverityCss(toast.Incident.Severity)" @onclick="() => DismissToast(toast.Id)" style="cursor: pointer;" title="Click to dismiss">
+                <div class="alert-toast-header">
+                    <div class="alert-toast-title">
+                        <span class="alert-toast-dot"></span>
+                        @toast.Incident.Severity alert - @toast.Incident.DeviceName
+                    </div>
+                    <button type="button" class="alert-toast-close" @onclick:stopPropagation="true" @onclick="() => DismissToast(toast.Id)" title="Close">&times;</button>
+                </div>
+                <div class="alert-toast-msg">@toast.Incident.Message</div>
+                <div class="alert-toast-time">@toast.Timestamp.ToLocalTime().ToString("HH:mm:ss")</div>
+            </div>
+        }
+    </div>
+}
+
+<div class="app-shell @(IsCollapsed ? "sidebar-collapsed" : "")">
+    <NavMenu IsCollapsed="IsCollapsed" IsMobileOpen="IsMobileOpen" OnBackdropClick="CloseMobile" />
+
+    <div class="app-main">
+        <TopBar OnToggleSidebar="ToggleSidebar" />
+
+        <main class="app-content">
+            @Body
+        </main>
+
+        <footer class="app-footer">
+            ALAM IOT Enterprises &middot; Since 1990
+        </footer>
+    </div>
+</div>
+
+@code {
+    private bool IsCollapsed = false;   // desktop: icon-only mode
+    private bool IsMobileOpen = false;  // mobile: off-canvas open/closed
+
+    private readonly record struct AlertToast(Guid Id, LiveTelemetryState.AlertIncidentDto Incident, DateTime Timestamp);
+    private readonly List<AlertToast> _alertToasts = new();
+
+    private void DismissToast(Guid id)
+    {
+        _alertToasts.RemoveAll(t => t.Id == id);
+        StateHasChanged();
+    }
+
+    private static string SeverityCss(string severity) => severity.ToLowerInvariant() switch
+    {
+        "critical" => "critical",
+        "info" => "info",
+        _ => "warning"
+    };
+
+    protected override void OnInitialized()
+    {
+        Live.OnAlertIncident += HandleAlertIncident;
+    }
+
+    private void HandleAlertIncident(LiveTelemetryState.AlertIncidentDto incident)
+    {
+        var toast = new AlertToast(incident.Id, incident, DateTime.UtcNow);
+        _alertToasts.Add(toast);
+        StateHasChanged();
+
+        // Auto-dismiss after 6 seconds unless a newer incident replaced it.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(6000);
+            await InvokeAsync(() =>
+            {
+                _alertToasts.RemoveAll(t => t.Id == toast.Id);
+                StateHasChanged();
+            });
+        });
+    }
+
+    private void ToggleSidebar()
+    {
+        // One button does the right thing on both breakpoints -
+        // CSS decides at runtime which mode is "active" via media queries,
+        // this just flips both flags so either mode responds correctly.
+        IsCollapsed = !IsCollapsed;
+        IsMobileOpen = !IsMobileOpen;
+    }
+
+    private void CloseMobile()
+    {
+        IsMobileOpen = false;
+    }
+
+    public void Dispose()
+    {
+        Live.OnAlertIncident -= HandleAlertIncident;
+    }
+}

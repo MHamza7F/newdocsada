@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:scada_demo_test.Maui.ViewModels"
+             x:Class="scada_demo_test.Maui.Views.LoginPage"
+             x:DataType="vm:LoginViewModel"
+             BackgroundColor="{StaticResource ScadaBgDark}"
+             NavigationPage.HasNavigationBar="False">
+
+    <ScrollView VerticalOptions="Center">
+        <VerticalStackLayout Padding="24" Spacing="20" MaximumWidthRequest="420" HorizontalOptions="Center">
+            
+            <!-- Brand Logo & Header -->
+            <VerticalStackLayout Spacing="8" HorizontalOptions="Center">
+                <Border StrokeShape="RoundRectangle 24"
+                        Stroke="{StaticResource ScadaCyan}"
+                        StrokeThickness="2"
+                        WidthRequest="84"
+                        HeightRequest="84"
+                        BackgroundColor="{StaticResource ScadaBgSurface}"
+                        HorizontalOptions="Center">
+                    <Image Source="app_logo.svg"
+                           WidthRequest="60"
+                           HeightRequest="60"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center" />
+                </Border>
+
+                <Label Text="ALAM IOT Enterprises"
+                       TextColor="{StaticResource ScadaTextPrimary}"
+                       FontSize="22"
+                       FontAttributes="Bold"
+                       HorizontalTextAlignment="Center" />
+
+                <Label Text="SCADA INDUSTRIAL TELEMETRY PLATFORM"
+                       TextColor="{StaticResource ScadaCyan}"
+                       FontSize="11"
+                       FontAttributes="Bold"
+                       CharacterSpacing="1.5"
+                       HorizontalTextAlignment="Center" />
+
+                <!-- Firebase Badge -->
+                <Border StrokeShape="RoundRectangle 12"
+                        Stroke="{StaticResource ScadaBorder}"
+                        BackgroundColor="{StaticResource ScadaBgSurface}"
+                        Padding="10,4"
+                        Margin="0,4,0,0"
+                        HorizontalOptions="Center">
+                    <HorizontalStackLayout Spacing="6">
+                        <BoxView Color="{StaticResource ScadaEmerald}" WidthRequest="8" HeightRequest="8" CornerRadius="4" VerticalOptions="Center" />
+                        <Label Text="Firebase RTDB Connected" TextColor="{StaticResource ScadaTextSecondary}" FontSize="11" />
+                    </HorizontalStackLayout>
+                </Border>
+            </VerticalStackLayout>
+
+            <!-- Login Card Container -->
+            <Border StrokeShape="RoundRectangle 16"
+                    Stroke="{StaticResource ScadaBorder}"
+                    StrokeThickness="1"
+                    BackgroundColor="{StaticResource ScadaBgSurface}"
+                    Padding="22">
+                <VerticalStackLayout Spacing="16">
+
+                    <!-- Error Alert Banner -->
+                    <Border IsVisible="{Binding HasError}"
+                            StrokeShape="RoundRectangle 8"
+                            Stroke="{StaticResource ScadaRose}"
+                            BackgroundColor="#2D1515"
+                            Padding="12">
+                        <HorizontalStackLayout Spacing="8">
+                            <Label Text="⚠️" FontSize="14" VerticalOptions="Center" />
+                            <Label Text="{Binding ErrorMessage}"
+                                   TextColor="{StaticResource ScadaRose}"
+                                   FontSize="12"
+                                   LineBreakMode="WordWrap"
+                                   VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+                    </Border>
+
+                    <!-- Email Input -->
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="Operator Email" TextColor="{StaticResource ScadaTextMuted}" FontSize="12" FontAttributes="Bold" />
+                        <Border StrokeShape="RoundRectangle 8"
+                                Stroke="{StaticResource ScadaBorder}"
+                                BackgroundColor="{StaticResource ScadaBgCard}"
+                                Padding="12,2">
+                            <Entry Text="{Binding Email}"
+                                   Placeholder="superadmin@alamiot.com"
+                                   PlaceholderColor="{StaticResource ScadaTextDim}"
+                                   TextColor="{StaticResource ScadaTextPrimary}"
+                                   Keyboard="Email"
+                                   ClearButtonVisibility="WhileEditing" />
+                        </Border>
+                    </VerticalStackLayout>
+
+                    <!-- Password Input -->
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="Password" TextColor="{StaticResource ScadaTextMuted}" FontSize="12" FontAttributes="Bold" />
+                        <Border StrokeShape="RoundRectangle 8"
+                                Stroke="{StaticResource ScadaBorder}"
+                                BackgroundColor="{StaticResource ScadaBgCard}"
+                                Padding="12,2">
+                            <Grid ColumnDefinitions="*, Auto">
+                                <Entry Grid.Column="0"
+                                       Text="{Binding Password}"
+                                       Placeholder="••••••••"
+                                       PlaceholderColor="{StaticResource ScadaTextDim}"
+                                       TextColor="{StaticResource ScadaTextPrimary}"
+                                       IsPassword="{Binding IsPasswordHidden}" />
+                                <Button Grid.Column="1"
+                                        Text="👁️"
+                                        Command="{Binding TogglePasswordVisibilityCommand}"
+                                        BackgroundColor="Transparent"
+                                        TextColor="{StaticResource ScadaTextMuted}"
+                                        Padding="0"
+                                        WidthRequest="36"
+                                        HeightRequest="36" />
+                            </Grid>
+                        </Border>
+                    </VerticalStackLayout>
+
+                    <!-- Remember Me Option -->
+                    <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
+                        <CheckBox IsChecked="{Binding RememberMe}" Color="{StaticResource ScadaCyan}" />
+                        <Label Text="Keep me signed in (30 days)"
+                               TextColor="{StaticResource ScadaTextSecondary}"
+                               FontSize="13"
+                               VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+
+                    <!-- Sign In Button -->
+                    <Button Text="Sign In to SCADA Portal"
+                            Command="{Binding LoginCommand}"
+                            IsEnabled="{Binding IsNotBusy}"
+                            BackgroundColor="{StaticResource ScadaCyan}"
+                            TextColor="{StaticResource ScadaBgDark}"
+                            FontAttributes="Bold"
+                            HeightRequest="48"
+                            CornerRadius="8" />
+
+                    <!-- Loading Indicator -->
+                    <ActivityIndicator IsRunning="{Binding IsBusy}"
+                                       IsVisible="{Binding IsBusy}"
+                                       Color="{StaticResource ScadaCyan}"
+                                       HeightRequest="32"
+                                       HorizontalOptions="Center" />
+
+                    <!-- Demo Fast Access Quick-Fill -->
+                    <HorizontalStackLayout Spacing="8" HorizontalOptions="Center">
+                        <Label Text="Quick Credentials:" TextColor="{StaticResource ScadaTextDim}" FontSize="11" VerticalOptions="Center" />
+                        <Button Text="SuperAdmin"
+                                Command="{Binding QuickFillAdminCommand}"
+                                Style="{StaticResource ScadaOutlineBtn}"
+                                HeightRequest="28"
+                                Padding="8,0"
+                                FontSize="11" />
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Bottom Note -->
+            <Label Text="Cross-Platform Industrial Monitor • v2.4 (Firebase RTDB)"
+                   TextColor="{StaticResource ScadaTextDim}"
+                   FontSize="11"
+                   HorizontalTextAlignment="Center" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

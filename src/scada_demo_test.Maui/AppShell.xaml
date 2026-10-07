@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Shell
+    x:Class="scada_demo_test.Maui.AppShell"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:views="clr-namespace:scada_demo_test.Maui.Views"
+    Title="SCADA Industrial Suite"
+    FlyoutBehavior="Flyout"
+    FlyoutBackgroundColor="{StaticResource ScadaBgDark}"
+    Shell.BackgroundColor="{StaticResource ScadaBgDark}"
+    Shell.ForegroundColor="{StaticResource ScadaCyan}"
+    Shell.TitleColor="{StaticResource ScadaTextPrimary}">
+
+    <!-- Flyout Navigation Drawer Header -->
+    <Shell.FlyoutHeader>
+        <Border BackgroundColor="{StaticResource ScadaBgSurface}"
+                StrokeShape="RoundRectangle 0"
+                Stroke="{StaticResource ScadaBorder}"
+                Padding="20,24,20,18">
+            <VerticalStackLayout Spacing="10">
+                <Grid ColumnDefinitions="Auto, *" ColumnSpacing="12">
+                    <Border Grid.Column="0"
+                            StrokeShape="RoundRectangle 16"
+                            Stroke="{StaticResource ScadaCyan}"
+                            StrokeThickness="1.5"
+                            WidthRequest="48"
+                            HeightRequest="48"
+                            BackgroundColor="{StaticResource ScadaBgCard}">
+                        <Image Source="app_logo.svg"
+                               WidthRequest="36"
+                               HeightRequest="36"
+                               HorizontalOptions="Center"
+                               VerticalOptions="Center" />
+                    </Border>
+
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                        <Label x:Name="LblUserName"
+                               Text="Super Admin"
+                               TextColor="{StaticResource ScadaTextPrimary}"
+                               FontSize="16"
+                               FontAttributes="Bold" />
+                        <Label x:Name="LblUserEmail"
+                               Text="superadmin@alamiot.com"
+                               TextColor="{StaticResource ScadaTextMuted}"
+                               FontSize="12" />
+                    </VerticalStackLayout>
+                </Grid>
+
+                <Grid ColumnDefinitions="*, Auto" Margin="0,4,0,0">
+                    <Border Grid.Column="0"
+                            StrokeShape="RoundRectangle 6"
+                            BackgroundColor="#2D1515"
+                            Padding="8,3"
+                            HorizontalOptions="Start">
+                        <Label x:Name="LblUserRole"
+                               Text="SuperAdmin"
+                               TextColor="{StaticResource ScadaRose}"
+                               FontSize="11"
+                               FontAttributes="Bold" />
+                    </Border>
+
+                    <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                        <BoxView Color="{StaticResource ScadaEmerald}" WidthRequest="8" HeightRequest="8" CornerRadius="4" VerticalOptions="Center" />
+                        <Label Text="Firebase RTDB" TextColor="{StaticResource ScadaEmerald}" FontSize="11" />
+                    </HorizontalStackLayout>
+                </Grid>
+            </VerticalStackLayout>
+        </Border>
+    </Shell.FlyoutHeader>
+
+    <!-- Navigation Drawer Flyout Items -->
+    <FlyoutItem Title="Live Telemetry Dashboard" Icon="ic_dashboard.svg">
+        <ShellContent
+            Title="Monitoring"
+            ContentTemplate="{DataTemplate views:DashboardPage}"
+            Route="DashboardPage" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="Plant Sites &amp; Facilities" Icon="ic_site.svg">
+        <ShellContent
+            Title="Sites"
+            ContentTemplate="{DataTemplate views:SitesPage}"
+            Route="SitesPage" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="Storage Tanks &amp; Silos" Icon="ic_tank.svg">
+        <ShellContent
+            Title="Tanks"
+            ContentTemplate="{DataTemplate views:StorageTanksPage}"
+            Route="StorageTanksPage" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="Modbus Devices &amp; Sensors" Icon="ic_device.svg">
+        <ShellContent
+            Title="Devices"
+            ContentTemplate="{DataTemplate views:DevicesPage}"
+            Route="DevicesPage" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="Historical Charts &amp; Trends" Icon="ic_chart.svg">
+        <ShellContent
+            Title="Analytics"
+            ContentTemplate="{DataTemplate views:AnalyticsPage}"
+            Route="AnalyticsPage" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="Alarm &amp; Incident Center" Icon="ic_alert.svg">
+        <ShellContent
+            Title="Alarms"
+            ContentTemplate="{DataTemplate views:AlertsPage}"
+            Route="AlertsPage" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="Security Audit Trail" Icon="ic_audit.svg">
+        <ShellContent
+            Title="Audit Logs"
+            ContentTemplate="{DataTemplate views:AuditLogsPage}"
+            Route="AuditLogsPage" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="User &amp; Access Controls" Icon="ic_users.svg">
+        <ShellContent
+            Title="Users"
+            ContentTemplate="{DataTemplate views:UsersPage}"
+            Route="UsersPage" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="System &amp; Settings" Icon="ic_settings.svg">
+        <ShellContent
+            Title="Settings"
+            ContentTemplate="{DataTemplate views:SettingsPage}"
+            Route="SettingsPage" />
+    </FlyoutItem>
+
+    <!-- Flyout Navigation Drawer Footer -->
+    <Shell.FlyoutFooter>
+        <Border BackgroundColor="{StaticResource ScadaBgSurface}"
+                StrokeShape="RoundRectangle 0"
+                Stroke="{StaticResource ScadaBorder}"
+                Padding="16">
+            <VerticalStackLayout Spacing="12">
+                <Button Text="🚪 Sign Out"
+                        Clicked="OnSignOutClicked"
+                        BackgroundColor="#2D1515"
+                        TextColor="{StaticResource ScadaRose}"
+                        FontAttributes="Bold"
+                        HeightRequest="40"
+                        CornerRadius="8" />
+
+                <Label Text="SCADA Suite v2.4 • Asia-SE1"
+                       TextColor="{StaticResource ScadaTextDim}"
+                       FontSize="10"
+                       HorizontalTextAlignment="Center" />
+            </VerticalStackLayout>
+        </Border>
+    </Shell.FlyoutFooter>
+
+</Shell>

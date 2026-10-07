@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/scada_demo_test.API/scada_demo_test.API.csproj" />
+    <Project Path="src/scada_demo_test.Application/scada_demo_test.Application.csproj" />
+    <Project Path="src/scada_demo_test.Domain/scada_demo_test.Domain.csproj" />
+    <Project Path="src/scada_demo_test.Infrastructure/scada_demo_test.Infrastructure.csproj" />
+    <Project Path="src/scada_demo_test.Maui/scada_demo_test.Maui.csproj">
+      <Build Solution="Debug|*" Project="false" />
+    </Project>
+    <Project Path="src/scada_demo_test.Web/scada_demo_test.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ScadaEngine.Tests/ScadaEngine.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,448 @@
+@page "/users"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Tab:Users")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using scada_demo_test.Domain.Constants
+@using scada_demo_test.Web.Services
+@inject ScadaDemoTestApiClient Api
+@inject AuthenticationStateProvider AuthProvider
+
+<div class="page-header-flex">
+    <div>
+        <h1 class="page-title">Access Control &amp; Permission Matrix</h1>
+        <p class="page-subtitle">Granular tab-level and action-level security policies, dynamic roles, and user governance</p>
+    </div>
+    <div class="header-actions">
+        <button class="btn-primary-scada" @onclick="OpenCreateUserModal">
+            <span>➕ Create User</span>
+        </button>
+        <button class="btn-secondary-scada" @onclick="OpenCreateRoleModal">
+            <span>🛡️ Add Custom Role</span>
+        </button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(ToastMessage))
+{
+    <div class="scada-toast @(ToastIsError ? "error" : "success")">
+        <span>@ToastMessage</span>
+        <button class="toast-close" @onclick="() => ToastMessage = null">✕</button>
+    </div>
+}
+
+<!-- USERS LIST -->
+<div class="glass-card table-card">
+    <div class="table-card-header">
+        <h3>👥 Registered System Users</h3>
+    </div>
+    <div class="table-responsive">
+        <table class="scada-table">
+            <thead>
+                <tr>
+                    <th>Full Name</th>
+                    <th>Email Address</th>
+                    <th>Assigned Role</th>
+                    <th>SuperAdmin Lock</th>
+                    <th>Created On</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (UserList.Count == 0)
+                {
+                    <tr>
+                        <td colspan="6" class="text-center text-muted" style="padding: 24px;">
+                            No system users registered.
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    var pagedUsers = UserList.Skip((UserPage - 1) * 10).Take(10);
+                    @foreach (var u in pagedUsers)
+                    {
+                        <tr>
+                            <td><strong>@u.FirstName @u.LastName</strong></td>
+                            <td>@u.Email</td>
+                            <td><span class="user-role-badge">@u.RoleName</span></td>
+                            <td>
+                                @if (u.IsHardcodedSuperAdmin)
+                                {
+                                    <span class="badge-lock">🔒 Protected SuperAdmin</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Standard</span>
+                                }
+                            </td>
+                            <td class="text-muted">@u.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")</td>
+                            <td>
+                                <div class="action-btn-group">
+                                    <button class="btn-icon-action" title="Edit User" @onclick="() => OpenEditUserModal(u)">✏️</button>
+                                    @if (!u.IsHardcodedSuperAdmin)
+                                    {
+                                        <button class="btn-icon-action delete" title="Delete User" @onclick="() => DeleteUser(u.Id)">🗑️</button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (UserList.Count > 0)
+    {
+        var totalUserPages = Math.Max(1, (int)Math.Ceiling(UserList.Count / 10.0));
+        <div class="pagination-bar">
+            <div class="pagination-info">
+                Showing @((UserPage - 1) * 10 + 1) to @(Math.Min(UserPage * 10, UserList.Count)) of @UserList.Count users
+            </div>
+            <div class="pagination-controls">
+                <button class="pg-btn" disabled="@(UserPage <= 1)" @onclick="() => UserPage--">‹ Prev</button>
+                @for (int p = 1; p <= totalUserPages; p++)
+                {
+                    var pageNum = p;
+                    <button class="pg-btn @(pageNum == UserPage ? "active" : "")" @onclick="() => UserPage = pageNum">@pageNum</button>
+                }
+                <button class="pg-btn" disabled="@(UserPage >= totalUserPages)" @onclick="() => UserPage++">Next ›</button>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- ROLES & GRANULAR PERMISSIONS MATRIX -->
+<div class="glass-card table-card" style="margin-top:28px;">
+    <div class="table-card-header">
+        <div>
+            <h3>🛡️ Granular Role Permission Matrix</h3>
+            <p class="text-muted">Configure Tab visibility and specific restricted Action capabilities per role</p>
+        </div>
+    </div>
+
+    @foreach (var role in Roles)
+    {
+        <div class="role-permission-box glass-card" style="margin-bottom:16px; padding:18px;">
+            <div class="role-box-header">
+                <div>
+                    <h4 style="font-size:1.1rem; font-weight:700; color:var(--text-main);">@role.Name Role</h4>
+                    <span class="text-muted" style="font-size:0.85rem;">@role.Description</span>
+                </div>
+                @if (role.IsSuperAdminRole)
+                {
+                    <span class="badge-accent">Irrevocable Full Access</span>
+                }
+                else
+                {
+                    <button class="btn-sm-action-ack" @onclick="() => SavePermissions(role)">
+                        💾 Save Role Permissions
+                    </button>
+                }
+            </div>
+
+            <div class="permission-sub-section">
+                <div class="perm-category-title">📂 Accessible Tabs &amp; Views</div>
+                <div class="checkbox-grid">
+                    @foreach (var tab in AppTabs.All)
+                    {
+                        var isChecked = role.IsSuperAdminRole || (role.Permissions.TryGetValue(tab, out var v) && v);
+                        <label class="checkbox-label @(role.IsSuperAdminRole ? "disabled" : "")">
+                            <input type="checkbox" checked="@isChecked" disabled="@role.IsSuperAdminRole"
+                                   @onchange="e => TogglePerm(role, tab, (bool)(e.Value ?? false))" />
+                            <span>@tab</span>
+                        </label>
+                    }
+                </div>
+            </div>
+
+            <div class="permission-sub-section" style="margin-top:14px;">
+                <div class="perm-category-title">⚡ Restricted Action Capabilities</div>
+                <div class="checkbox-grid">
+                    @foreach (var act in AppPermissions.All)
+                    {
+                        var isChecked = role.IsSuperAdminRole || (role.Permissions.TryGetValue(act, out var v) && v);
+                        <label class="checkbox-label @(role.IsSuperAdminRole ? "disabled" : "")">
+                            <input type="checkbox" checked="@isChecked" disabled="@role.IsSuperAdminRole"
+                                   @onchange="e => TogglePerm(role, act, (bool)(e.Value ?? false))" />
+                            <span>@act</span>
+                        </label>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- CREATE/EDIT USER MODAL -->
+@if (IsUserModalOpen)
+{
+    <div class="modal-overlay" @onclick="() => IsUserModalOpen = false">
+        <div class="modal-card glass-card" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>@(IsEditUserMode ? "Edit User Profile" : "Create New User")</h3>
+                <button class="modal-close" @onclick="() => IsUserModalOpen = false">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label>First Name</label>
+                        <input type="text" class="custom-input" @bind="UserFirstName" />
+                    </div>
+                    <div class="form-group">
+                        <label>Last Name</label>
+                        <input type="text" class="custom-input" @bind="UserLastName" />
+                    </div>
+                    <div class="form-group">
+                        <label>Email Address</label>
+                        <input type="email" class="custom-input" @bind="UserEmail" disabled="@IsEditUserMode" />
+                    </div>
+                    <div class="form-group">
+                        <label>Assigned Role</label>
+                        <select class="custom-select" @bind="UserRole">
+                            @foreach (var r in Roles)
+                            {
+                                <option value="@r.Name">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label>@(IsEditUserMode ? "New Password (leave empty to keep current)" : "Password *")</label>
+                        <div class="password-input-wrapper">
+                            <input type="@(ShowUserPassword ? "text" : "password")" class="custom-input" @bind="UserPassword" placeholder="••••••••" />
+                            <button type="button" class="btn-eye-toggle" @onclick="() => ShowUserPassword = !ShowUserPassword" title="@(ShowUserPassword ? "Hide password" : "Show password")">
+                                @(ShowUserPassword ? "🙈" : "👁️")
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary-scada" @onclick="() => IsUserModalOpen = false">Cancel</button>
+                <button class="btn-primary-scada" @onclick="SaveUserAsync">Save User Profile</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- CREATE ROLE MODAL -->
+@if (IsRoleModalOpen)
+{
+    <div class="modal-overlay" @onclick="() => IsRoleModalOpen = false">
+        <div class="modal-card glass-card" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>🛡️ Create Custom Role</h3>
+                <button class="modal-close" @onclick="() => IsRoleModalOpen = false">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Role Name *</label>
+                    <input type="text" class="custom-input" placeholder="e.g. ShiftSupervisor" @bind="NewRoleName" />
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" class="custom-input" placeholder="Role responsibilities and limits" @bind="NewRoleDesc" />
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary-scada" @onclick="() => IsRoleModalOpen = false">Cancel</button>
+                <button class="btn-primary-scada" @onclick="SaveRoleAsync">Create Role</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ScadaDemoTestApiClient.UserDto> UserList = new();
+    private List<ScadaDemoTestApiClient.RoleDto> Roles = new();
+    private int UserPage = 1;
+
+    private bool IsUserModalOpen = false;
+    private bool IsEditUserMode = false;
+    private Guid EditingUserId = Guid.Empty;
+    private string UserFirstName = "";
+    private string UserLastName = "";
+    private string UserEmail = "";
+    private string UserRole = "Employee";
+    private string UserPassword = "";
+    private bool ShowUserPassword = false;
+
+    private bool IsRoleModalOpen = false;
+    private string NewRoleName = "";
+    private string NewRoleDesc = "";
+
+    private string? ToastMessage = null;
+    private bool ToastIsError = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        UserList = await Api.GetUsersAsync();
+        Roles = await Api.GetRolesAsync();
+    }
+
+    private async Task<bool> CheckPermissionAsync(string actionPermission)
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.HasClaim("IsSuperAdmin", "true") || user.IsInRole("SuperAdmin"))
+            return true;
+
+        if (user.HasClaim("perm", actionPermission) || user.HasClaim("perm", "Users"))
+            return true;
+
+        return false;
+    }
+
+    private async Task OpenCreateUserModal()
+    {
+        if (!await CheckPermissionAsync("Users.Manage"))
+        {
+            ShowToast("Access Denied: You do not have permission to create users.", isError: true);
+            return;
+        }
+
+        IsEditUserMode = false;
+        UserFirstName = "";
+        UserLastName = "";
+        UserEmail = "";
+        UserRole = Roles.FirstOrDefault(r => r.Name == "Employee")?.Name ?? "Employee";
+        UserPassword = "";
+        ShowUserPassword = false;
+        IsUserModalOpen = true;
+    }
+
+    private async Task OpenEditUserModal(ScadaDemoTestApiClient.UserDto user)
+    {
+        if (!await CheckPermissionAsync("Users.Manage"))
+        {
+            ShowToast("Access Denied: You do not have permission to edit users.", isError: true);
+            return;
+        }
+
+        IsEditUserMode = true;
+        EditingUserId = user.Id;
+        UserFirstName = user.FirstName;
+        UserLastName = user.LastName;
+        UserEmail = user.Email;
+        UserRole = user.RoleName;
+        UserPassword = "";
+        ShowUserPassword = false;
+        IsUserModalOpen = true;
+    }
+
+    private async Task SaveUserAsync()
+    {
+        if (IsEditUserMode)
+        {
+            var req = new ScadaDemoTestApiClient.UpdateUserRequest(UserFirstName, UserLastName, null, UserRole, string.IsNullOrWhiteSpace(UserPassword) ? null : UserPassword);
+            var (success, error) = await Api.UpdateUserAsync(EditingUserId, req);
+            if (!success) { ShowToast(error ?? "Update failed", isError: true); return; }
+            ShowToast("User updated successfully!", isError: false);
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(UserEmail) || string.IsNullOrWhiteSpace(UserPassword))
+            {
+                ShowToast("Email and password are required.", isError: true);
+                return;
+            }
+            var req = new ScadaDemoTestApiClient.CreateUserRequest(UserFirstName, UserLastName, UserEmail, null, UserPassword, UserRole);
+            var (success, error) = await Api.CreateUserAsync(req);
+            if (!success) { ShowToast(error ?? "Creation failed", isError: true); return; }
+            ShowToast("User created successfully!", isError: false);
+        }
+
+        IsUserModalOpen = false;
+        await LoadDataAsync();
+    }
+
+    private async Task DeleteUser(Guid id)
+    {
+        if (!await CheckPermissionAsync("Users.Manage"))
+        {
+            ShowToast("Access Denied: You do not have permission to delete users.", isError: true);
+            return;
+        }
+
+        var (success, error) = await Api.DeleteUserAsync(id);
+        if (success)
+        {
+            ShowToast("User deleted.", isError: false);
+            await LoadDataAsync();
+        }
+        else
+        {
+            ShowToast(error ?? "Failed to delete user", isError: true);
+        }
+    }
+
+    private async Task OpenCreateRoleModal()
+    {
+        if (!await CheckPermissionAsync("Roles.Manage"))
+        {
+            ShowToast("Access Denied: You do not have permission to create custom roles.", isError: true);
+            return;
+        }
+
+        NewRoleName = "";
+        NewRoleDesc = "";
+        IsRoleModalOpen = true;
+    }
+
+    private async Task SaveRoleAsync()
+    {
+        if (string.IsNullOrWhiteSpace(NewRoleName))
+        {
+            ShowToast("Role name is required.", isError: true);
+            return;
+        }
+
+        var (success, error) = await Api.CreateRoleAsync(new ScadaDemoTestApiClient.CreateRoleRequest(NewRoleName, NewRoleDesc));
+        if (success)
+        {
+            ShowToast($"Role '{NewRoleName}' created!", isError: false);
+            IsRoleModalOpen = false;
+            await LoadDataAsync();
+        }
+        else
+        {
+            ShowToast(error ?? "Failed to create role", isError: true);
+        }
+    }
+
+    private void TogglePerm(ScadaDemoTestApiClient.RoleDto role, string key, bool isChecked)
+    {
+        role.Permissions[key] = isChecked;
+    }
+
+    private async Task SavePermissions(ScadaDemoTestApiClient.RoleDto role)
+    {
+        if (!await CheckPermissionAsync("Roles.Manage"))
+        {
+            ShowToast("Access Denied: You do not have permission to update role permissions.", isError: true);
+            return;
+        }
+
+        var (success, error) = await Api.UpdateRolePermissionsAsync(role.Id, role.Permissions);
+        if (success)
+        {
+            ShowToast($"Permissions saved for role '{role.Name}'!", isError: false);
+        }
+        else
+        {
+            ShowToast(error ?? "Failed to save permissions", isError: true);
+        }
+    }
+
+    private void ShowToast(string msg, bool isError)
+    {
+        ToastMessage = msg;
+        ToastIsError = isError;
+        StateHasChanged();
+    }
+}

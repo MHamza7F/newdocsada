@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:scada_demo_test.Maui.ViewModels"
+             xmlns:entities="clr-namespace:scada_demo_test.Domain.Entities;assembly=scada_demo_test.Domain"
+             x:Class="scada_demo_test.Maui.Views.StorageTanksPage"
+             x:DataType="vm:StorageTanksViewModel"
+             Title="Storage Tanks"
+             BackgroundColor="{StaticResource ScadaBgDark}">
+
+    <RefreshView IsRefreshing="{Binding IsBusy}" Command="{Binding LoadTanksCommand}">
+        <ScrollView>
+            <VerticalStackLayout Padding="16" Spacing="16">
+
+                <!-- Header Section -->
+                <Grid ColumnDefinitions="*, Auto">
+                    <VerticalStackLayout Grid.Column="0" Spacing="2">
+                        <Label Text="Bulk Storage &amp; Silo Tanks" Style="{StaticResource ScadaPageTitle}" />
+                        <Label Text="Live volume levels, liquid temperatures &amp; flow balance" Style="{StaticResource ScadaPageSubtitle}" />
+                    </VerticalStackLayout>
+
+                    <Border Grid.Column="1"
+                            StrokeShape="RoundRectangle 8"
+                            Stroke="{StaticResource ScadaBorder}"
+                            BackgroundColor="{StaticResource ScadaBgSurface}"
+                            Padding="10,6"
+                            VerticalOptions="Center">
+                        <HorizontalStackLayout Spacing="6">
+                            <BoxView Color="{StaticResource ScadaEmerald}" WidthRequest="8" HeightRequest="8" CornerRadius="4" VerticalOptions="Center" />
+                            <Label Text="Firebase Real-Time" TextColor="{StaticResource ScadaEmerald}" FontSize="11" FontAttributes="Bold" />
+                        </HorizontalStackLayout>
+                    </Border>
+                </Grid>
+
+                <!-- KPI Storage Overview Cards -->
+                <Grid ColumnDefinitions="*, *, *" ColumnSpacing="10">
+                    <!-- Avg Level -->
+                    <Border Grid.Column="0" Style="{StaticResource ScadaCardStyle}">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Avg Level" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                            <Label Text="{Binding AverageLevel, StringFormat='{0}%'}" TextColor="{StaticResource ScadaCyan}" FontSize="18" FontAttributes="Bold" />
+                        </VerticalStackLayout>
+                    </Border>
+
+                    <!-- Total Volume -->
+                    <Border Grid.Column="1" Style="{StaticResource ScadaCardStyle}">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Total Volume" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                            <Label Text="{Binding TotalVolumeLiters, StringFormat='{0:N0} L'}" TextColor="{StaticResource ScadaTextPrimary}" FontSize="16" FontAttributes="Bold" />
+                        </VerticalStackLayout>
+                    </Border>
+
+                    <!-- Alerts -->
+                    <Border Grid.Column="2" Style="{StaticResource ScadaCardStyle}">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="Alarmed Tanks" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                            <Label Text="{Binding AlertTanksCount}" TextColor="{StaticResource ScadaRose}" FontSize="18" FontAttributes="Bold" />
+                        </VerticalStackLayout>
+                    </Border>
+                </Grid>
+
+                <!-- Filter Chips Bar -->
+                <HorizontalStackLayout Spacing="8">
+                    <Button Text="All Tanks"
+                            Command="{Binding SetLiquidFilterCommand}"
+                            CommandParameter="All"
+                            Style="{StaticResource ScadaOutlineBtn}"
+                            HeightRequest="34"
+                            Padding="12,0" />
+                    <Button Text="Water"
+                            Command="{Binding SetLiquidFilterCommand}"
+                            CommandParameter="Raw Water"
+                            Style="{StaticResource ScadaOutlineBtn}"
+                            HeightRequest="34"
+                            Padding="12,0" />
+                    <Button Text="Chemical"
+                            Command="{Binding SetLiquidFilterCommand}"
+                            CommandParameter="Chemical"
+                            Style="{StaticResource ScadaOutlineBtn}"
+                            HeightRequest="34"
+                            Padding="12,0" />
+                    <Button Text="Diesel"
+                            Command="{Binding SetLiquidFilterCommand}"
+                            CommandParameter="Diesel"
+                            Style="{StaticResource ScadaOutlineBtn}"
+                            HeightRequest="34"
+                            Padding="12,0" />
+                </HorizontalStackLayout>
+
+                <!-- Tanks Collection -->
+                <CollectionView ItemsSource="{Binding Tanks}" SelectionMode="None">
+                    <CollectionView.EmptyView>
+                        <VerticalStackLayout Padding="40" Spacing="8" HorizontalOptions="Center">
+                            <Label Text="🛢️" FontSize="36" HorizontalTextAlignment="Center" />
+                            <Label Text="No storage tanks found." TextColor="{StaticResource ScadaTextMuted}" HorizontalTextAlignment="Center" />
+                        </VerticalStackLayout>
+                    </CollectionView.EmptyView>
+
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="entities:StorageTank">
+                            <Border Margin="0,0,0,12"
+                                    StrokeShape="RoundRectangle 12"
+                                    Stroke="{StaticResource ScadaBorder}"
+                                    BackgroundColor="{StaticResource ScadaBgSurface}"
+                                    Padding="16">
+                                <VerticalStackLayout Spacing="12">
+
+                                    <!-- Top Row: Code, Name, Status -->
+                                    <Grid ColumnDefinitions="Auto, *, Auto">
+                                        <Border Grid.Column="0"
+                                                StrokeShape="RoundRectangle 6"
+                                                BackgroundColor="{StaticResource ScadaBgCard}"
+                                                Stroke="{StaticResource ScadaCyan}"
+                                                Padding="8,4"
+                                                Margin="0,0,8,0">
+                                            <Label Text="{Binding TankCode}"
+                                                   TextColor="{StaticResource ScadaCyan}"
+                                                   FontSize="12"
+                                                   FontAttributes="Bold" />
+                                        </Border>
+
+                                        <VerticalStackLayout Grid.Column="1" VerticalOptions="Center">
+                                            <Label Text="{Binding Name}"
+                                                   TextColor="{StaticResource ScadaTextPrimary}"
+                                                   FontSize="15"
+                                                   FontAttributes="Bold" />
+                                            <Label Text="{Binding LiquidType, StringFormat='Liquid: {0}'}"
+                                                   TextColor="{StaticResource ScadaTextMuted}"
+                                                   FontSize="11" />
+                                        </VerticalStackLayout>
+
+                                        <Border Grid.Column="2"
+                                                StrokeShape="RoundRectangle 6"
+                                                BackgroundColor="#2D1515"
+                                                Stroke="{StaticResource ScadaRose}"
+                                                Padding="8,4"
+                                                VerticalOptions="Center">
+                                            <Label Text="{Binding Status}"
+                                                   TextColor="{StaticResource ScadaRose}"
+                                                   FontSize="11"
+                                                   FontAttributes="Bold" />
+                                        </Border>
+                                    </Grid>
+
+                                    <!-- Liquid Level Gauge Bar -->
+                                    <VerticalStackLayout Spacing="4">
+                                        <Grid ColumnDefinitions="*, Auto">
+                                            <Label Grid.Column="0" Text="Current Fill Level" TextColor="{StaticResource ScadaTextSecondary}" FontSize="12" />
+                                            <Label Grid.Column="1" Text="{Binding LevelPercentage, StringFormat='{0:F1}%'}" TextColor="{StaticResource ScadaCyan}" FontSize="13" FontAttributes="Bold" />
+                                        </Grid>
+
+                                        <!-- Progress Bar Container -->
+                                        <Border StrokeShape="RoundRectangle 6"
+                                                BackgroundColor="{StaticResource ScadaBgCard}"
+                                                HeightRequest="12"
+                                                Padding="0">
+                                            <BoxView Color="{StaticResource ScadaCyan}"
+                                                     HorizontalOptions="Start"
+                                                     WidthRequest="280" />
+                                        </Border>
+                                    </VerticalStackLayout>
+
+                                    <!-- Metrics Grid: Volume, In/Out Flows, Temperature -->
+                                    <Grid ColumnDefinitions="*, *, *" ColumnSpacing="8" BackgroundColor="{StaticResource ScadaBgCard}" Padding="10" Margin="0,4,0,0">
+                                        <!-- Volume -->
+                                        <VerticalStackLayout Grid.Column="0" Spacing="2">
+                                            <Label Text="Volume" TextColor="{StaticResource ScadaTextDim}" FontSize="10" />
+                                            <Label Text="{Binding CurrentVolumeLiters, StringFormat='{0:N0} L'}" TextColor="{StaticResource ScadaTextPrimary}" FontSize="12" FontAttributes="Bold" />
+                                            <Label Text="{Binding CapacityLiters, StringFormat='of {0:N0} L'}" TextColor="{StaticResource ScadaTextMuted}" FontSize="9" />
+                                        </VerticalStackLayout>
+
+                                        <!-- Flow Balance -->
+                                        <VerticalStackLayout Grid.Column="1" Spacing="2">
+                                            <Label Text="Flow (In/Out)" TextColor="{StaticResource ScadaTextDim}" FontSize="10" />
+                                            <Label Text="{Binding InletFlowRate, StringFormat='+{0:F0} L/m'}" TextColor="{StaticResource ScadaEmerald}" FontSize="11" FontAttributes="Bold" />
+                                            <Label Text="{Binding OutletFlowRate, StringFormat='-{0:F0} L/m'}" TextColor="{StaticResource ScadaRose}" FontSize="11" FontAttributes="Bold" />
+                                        </VerticalStackLayout>
+
+                                        <!-- Temperature -->
+                                        <VerticalStackLayout Grid.Column="2" Spacing="2">
+                                            <Label Text="Temperature" TextColor="{StaticResource ScadaTextDim}" FontSize="10" />
+                                            <Label Text="{Binding TemperatureCelsius, StringFormat='{0:F1} °C'}" TextColor="{StaticResource ScadaAmber}" FontSize="13" FontAttributes="Bold" />
+                                            <Label Text="Optimal" TextColor="{StaticResource ScadaTextMuted}" FontSize="9" />
+                                        </VerticalStackLayout>
+                                    </Grid>
+
+                                </VerticalStackLayout>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </RefreshView>
+</ContentPage>

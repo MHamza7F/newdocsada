@@ -1,0 +1,1483 @@
+@using scada_demo_test.Web.Services
+@page "/gateway"
+@attribute [Authorize(Policy = "Tab:Gateway")]
+@inject ScadaDemoTestApiClient Api
+@implements IDisposable
+
+<div class="page-header-flex">
+    <div>
+        <h1 class="page-title">Gateway — Smart RS-485 Bus Scan</h1>
+        <p class="page-subtitle">Add a gateway, find the meters wired to its RS-485 bus, then map them into sensors in one click — nothing is saved until you add</p>
+    </div>
+    <button class="btn-primary-scada" @onclick="OpenAddDeviceModal">
+        <span>+ Add Gateway</span>
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(ToastMessage))
+{
+    <div class="scada-toast @(ToastIsError ? "error" : "success")">
+        <span>@(ToastIsError ? "✕" : "✓")</span>
+        <span>@ToastMessage</span>
+        <button class="toast-close" @onclick="() => ToastMessage = null">✕</button>
+    </div>
+}
+
+@* ---------- Step 1: registered gateways ---------- *@
+<h3 style="color:var(--text-primary);font-size:0.95rem;margin:1rem 0 0.5rem;text-transform:uppercase;letter-spacing:0.5px;">Registered Gateways</h3>
+
+@if (GatewayDevices.Count == 0 && !Loading)
+{
+    <div class="glass-card" style="text-align:center;padding:2.5rem;">
+        <div style="font-size:2rem;margin-bottom:0.5rem;">🔌</div>
+        <h3 style="color:var(--text-primary);margin-bottom:0.4rem;">No Gateways Yet</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem;">Click <strong>+ Add Gateway</strong> to register a USR-W610 (Modbus TCP) or Norvi gateway, then come back here to scan its bus.</p>
+    </div>
+}
+
+@if (Loading)
+{
+    <div class="glass-card" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading gateways…</div>
+}
+else
+{
+    <div style="display:flex;flex-direction:column;gap:0.7rem;">
+        @foreach (var d in GatewayDevices)
+        {
+            var isSelected = SelectedGatewayGuid == d.Id;
+            <div class="glass-card" style="padding:0.9rem 1.1rem;cursor:pointer;border:1px solid @(isSelected ? "var(--primary-blue)" : "var(--border)");box-shadow:@(isSelected ? "0 0 0 1px var(--primary-blue)" : "none");"
+                 @onclick="() => SelectGateway(d)">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.6rem;">
+                    <div style="display:flex;align-items:center;gap:0.8rem;">
+                        <div style="width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:@(d.IsOnline ? "rgba(16,185,129,0.12)" : "rgba(148,163,184,0.12)");">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="@(d.IsOnline ? "var(--accent-emerald)" : "var(--text-muted)")" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="3" width="20" height="14" rx="2" />
+                                <line x1="8" y1="21" x2="16" y2="21" />
+                                <line x1="12" y1="17" x2="12" y2="21" />
+                            </svg>
+                        </div>
+                        <div>
+                            <div style="font-weight:700;color:var(--text-primary);">
+                                @d.Name <span style="font-size:0.72rem;font-weight:600;padding:0.12rem 0.45rem;border-radius:6px;background:var(--bg-surface);color:var(--text-muted);border:1px solid var(--border);">@d.ExternalId</span>
+                            </div>
+                            <div style="color:var(--text-muted);font-size:0.8rem;">
+                                <strong>@d.HardwareType</strong> &bull; <code style="color:var(--primary-blue);">@d.IpAddress:@d.Port</code> &bull; @d.SensorCount sensors
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
+                        <span style="font-size:0.75rem;font-weight:700;padding:0.28rem 0.7rem;border-radius:12px;background:@(d.IsOnline ? "rgba(16,185,129,0.15)" : "rgba(148,163,184,0.15)");color:@(d.IsOnline ? "var(--accent-emerald)" : "var(--text-muted)");">
+                            @(d.IsOnline ? "● ONLINE" : "○ OFFLINE")
+                        </span>
+                        <button class="btn-secondary-scada" style="font-size:0.75rem;padding:0.3rem 0.7rem;"
+                                @onclick="() => QuickScanFromCard(d)" @onclick:stopPropagation
+                                disabled="@(Scanning || string.IsNullOrWhiteSpace(d.IpAddress))">
+                            @(Scanning && SelectedGatewayGuid == d.Id && ScanModeLabel.Contains("Quick") ? "Scanning…" : "⚡ Quick 1-20")
+                        </button>
+                        <button class="btn-secondary-scada" style="font-size:0.75rem;padding:0.3rem 0.7rem;"
+                                @onclick="() => FullScanFromCard(d)" @onclick:stopPropagation
+                                disabled="@(Scanning || string.IsNullOrWhiteSpace(d.IpAddress))">
+                            @(Scanning && SelectedGatewayGuid == d.Id && ScanModeLabel.Contains("Full") ? "Scanning…" : "🔍 Find Sensors")
+                        </button>
+                        <button class="btn-small" style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25);border-radius:6px;padding:0.3rem 0.65rem;font-size:0.75rem;font-weight:600;"
+                                @onclick="() => PromptDeleteDevice(d)" @onclick:stopPropagation
+                                disabled="@DeleteBusy">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+
+                @* ---------- always-visible child sensors of this gateway ---------- *@
+                <div style="margin-top:0.7rem;padding-top:0.6rem;border-top:1px solid var(--border);" @onclick:stopPropagation>
+                    @if (AllChildren.TryGetValue(d.Id, out var childList) && childList.Count > 0)
+                    {
+                        <div style="font-weight:700;color:var(--text-primary);font-size:0.85rem;margin-bottom:0.45rem;">Attached Sensor Children (@childList.Count)</div>
+                        @foreach (var s in childList)
+                        {
+                            <div style="display:flex;justify-content:space-between;align-items:center;padding:0.45rem 0.2rem;border-bottom:1px solid var(--border);gap:0.6rem;flex-wrap:wrap;">
+                                <div style="display:flex;align-items:flex-start;gap:0.5rem;min-width:0;">
+                                    <span style="width:24px;height:24px;border-radius:5px;background:var(--primary-blue-light);display:inline-flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700;color:var(--primary-blue);margin-top:0.1rem;">@s.SlaveAddress</span>
+                                    <div style="min-width:0;">
+                                        <div style="font-weight:600;color:var(--text-primary);font-size:0.85rem;">@s.Name</div>
+                                        <div style="color:var(--text-muted);font-size:0.74rem;">
+                                            ID: <code>@s.UniqueSensorId</code> &bull; Slave <code>@("0x" + s.SlaveAddress.ToString("X2"))</code> &bull; @(s.DriverDisplayName?.Split('(')[0]?.Trim())
+                                        </div>
+                                        <div style="font-size:0.82rem;">
+                                            <span style="font-weight:700;color:var(--primary-blue);font-family:monospace;">@MetricValueFormat.Display(s.LatestPrimary, s.UnitPrimary)</span>
+                                            <span style="font-weight:700;color:var(--text-primary);font-family:monospace;margin-left:0.6rem;">@MetricValueFormat.Display(s.LatestSecondary, s.UnitSecondary)</span>
+                                            <span style="color:var(--text-muted);font-size:0.72rem;margin-left:0.5rem;">@(s.LatestTimestampUtc.HasValue ? s.LatestTimestampUtc.Value.ToLocalTime().ToString("HH:mm:ss") : "no live data")</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <span style="font-size:0.72rem;font-weight:700;padding:0.2rem 0.55rem;border-radius:12px;background:@(s.IsOnline ? "rgba(16,185,129,0.15)" : "rgba(148,163,184,0.15)");color:@(s.IsOnline ? "var(--accent-emerald)" : "var(--text-muted)");">
+                                        @(s.IsOnline ? "ONLINE" : "OFFLINE")
+                                    </span>
+                                    <button class="btn-small" style="border:1px solid var(--border);padding:0.25rem 0.6rem;border-radius:6px;background:var(--bg-surface);color:var(--primary-blue);font-size:0.75rem;font-weight:600;"
+                                            @onclick="() => OpenEditSensor(s)" @onclick:stopPropagation>
+                                        ⚙ Edit Parameters
+                                    </button>
+                                    <button class="btn-small" style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.75rem;font-weight:600;"
+                                            @onclick="() => PromptDeleteSensor(s)" @onclick:stopPropagation
+                                            disabled="@DeleteBusy">
+                                        Delete Sensor
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div style="color:var(--text-muted);font-size:0.8rem;padding:0.2rem 0;">
+                            No field sensors attached to this gateway yet — use <strong>🔍 Find Sensors</strong> to discover meters on its RS-485 bus.
+                        </div>
+                    }
+                </div>
+
+                @if (isSelected)
+                {
+                    <div style="margin-top:0.7rem;padding-top:0.6rem;border-top:1px solid var(--border);" @onclick:stopPropagation>
+                        @if (Scanning)
+                        {
+                            <div style="color:var(--text-muted);font-size:0.78rem;">Scanning @(ScanModeLabel) — registered sensors auto-skipped…</div>
+                        }
+                        else if (string.IsNullOrWhiteSpace(d.IpAddress))
+                        {
+                            <div style="color:var(--accent-rose);font-size:0.8rem;">No IP set — edit the gateway's IP address first.</div>
+                        }
+
+                        @if (ScanFailed && (LastScan == null || ((LastScan.Found?.Count ?? 0) == 0 && (LastScan.DuplicateIdConflicts?.Count ?? 0) == 0 && (LastScan.AlreadyInSystemSlaves?.Count ?? 0) == 0)))
+                        {
+                            <div style="color:var(--accent-rose);font-size:0.85rem;padding:0.4rem 0;">Gateway did not respond during the scan. Confirm it is powered + reachable and is a Modbus TCP gateway, then retry.</div>
+                        }
+
+
+
+                        @if (LastScan != null)
+                        {
+                            @* ---------- Step 3: detection + multi-select ---------- *@
+                            <div style="border:1px solid var(--border);border-radius:8px;padding:0.85rem 1rem;background:var(--bg-card);margin-top:0.6rem;">
+                                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.6rem;">
+                                    <div style="color:var(--text-primary);font-size:0.88rem;font-weight:700;">
+                                        Detected Meters — @(LastScan.Found?.Count ?? 0) (probe @LastScan.ProbeTimeoutMs ms, @LastScan.SlavesScanned addresses scanned)
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:0.8rem;">
+                                        @if (LastScan.Found is { Count: > 0 })
+                                        {
+                                            <label style="display:flex;align-items:center;gap:0.35rem;color:var(--text-muted);font-size:0.78rem;" @onclick:stopPropagation>
+                                                <input type="checkbox" @bind="SelectAllFound" @bind:after="ToggleSelectAll" /> Select All
+                                            </label>
+                                        }
+                                        <button class="btn-small" style="border:none;background:transparent;color:var(--text-muted);font-size:0.9rem;" @onclick="ClearScan" @onclick:stopPropagation>✕</button>
+                                    </div>
+                                </div>
+
+                                @* ================= BUCKET 1: ALREADY IN SYSTEM ================= *@
+                                @if (LastScan.AlreadyInSystemSlaves?.Count > 0)
+                                {
+                                    <div style="margin-bottom:0.75rem;padding:0.75rem;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:6px;">
+                                        <div style="font-weight:700;font-size:0.82rem;color:var(--accent-amber);margin-bottom:0.35rem;display:flex;align-items:center;gap:0.4rem;">
+                                            <span>ℹ️</span>
+                                            <span>Already Added in System (@LastScan.AlreadyInSystemSlaves.Count)</span>
+                                        </div>
+
+                                        <div style="display:flex;flex-direction:column;gap:0.3rem;">@foreach (var a in LastScan.AlreadyInSystemSlaves)
+                                        {
+                                                <div style="font-size:0.78rem;color:var(--text-primary);display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                                                    <span style="font-weight:700;background:rgba(245,158,11,0.2);color:var(--accent-amber);padding:1px 6px;border-radius:4px;font-family:monospace;">Slave @a.SlaveAddress</span>
+                                                    <span style="font-weight:600;">@(string.IsNullOrWhiteSpace(a.ExistingSensorName) ? "Active Sensor" : a.ExistingSensorName)</span>
+                                                    <span style="color:var(--text-muted);font-size:0.74rem;">— @a.Message</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+
+                                @* ================= BUCKET 2: BLOCKED SCAN DUPLICATES ================= *@
+                                @if (LastScan.DuplicateIdConflicts?.Count > 0)
+                                {
+                                    <div style="margin-bottom:0.85rem;padding:0.85rem;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.35);border-radius:8px;">
+                                        <div style="font-weight:700;font-size:0.85rem;color:var(--accent-rose);margin-bottom:0.35rem;display:flex;align-items:center;gap:0.4rem;">
+                                            <span>⛔</span>
+                                            <span>Duplicate Slave ID (@LastScan.DuplicateIdConflicts.Count)</span>
+                                        </div>
+                                        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem;">
+                                            Two or more sensors are answering on the same Slave ID. Results for this ID stay hidden until each sensor has its own ID:
+                                        </div>
+                                        <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                                            @foreach (var c in LastScan.DuplicateIdConflicts)
+                                            {
+                                                <div style="background:var(--bg-card);border:1px solid rgba(239,68,68,0.25);border-radius:6px;padding:0.65rem 0.85rem;">
+                                                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem;flex-wrap:wrap;gap:0.4rem;">
+                                                        <span style="font-weight:700;background:rgba(239,68,68,0.2);color:var(--accent-rose);padding:2px 8px;border-radius:4px;font-family:monospace;font-size:0.82rem;">
+                                                            Slave ID @c.SlaveAddress
+                                                        </span>
+                                                        <span style="font-size:0.75rem;color:var(--accent-rose);font-weight:700;">
+                                                            ⚠️ @c.SensorCount meter(s) answering on this ID
+                                                        </span>
+                                                    </div>
+
+                                                    @if (c.CollidingMeterNames is { Count: > 0 })
+                                                    {
+                                                        <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.45rem;">
+                                                            <span style="font-size:0.76rem;color:var(--text-muted);font-weight:600;">Colliding Meters:</span>
+                                                            @for (int nIdx = 0; nIdx < c.CollidingMeterNames.Count; nIdx++)
+                                                            {
+                                                                var meterName = c.CollidingMeterNames[nIdx];
+                                                                <span style="font-size:0.74rem;font-weight:700;background:rgba(239,68,68,0.15);color:var(--accent-rose);padding:2px 7px;border-radius:3px;border:1px solid rgba(239,68,68,0.3);">
+                                                                    @meterName
+                                                                </span>
+                                                                @if (nIdx < c.CollidingMeterNames.Count - 1)
+                                                                {
+                                                                    <span style="font-size:0.72rem;color:var(--accent-rose);font-weight:800;">⚡ CONFLICT ⚡</span>
+                                                                }
+                                                            }
+                                                        </div>
+                                                    }
+
+                                                    <div style="font-size:0.78rem;color:var(--text-primary);line-height:1.45;background:rgba(0,0,0,0.03);padding:0.45rem 0.6rem;border-radius:4px;border-left:3px solid var(--accent-rose);">
+                                                        @c.Message
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+
+                                @* Green one-line status: every responding slave has a unique ID and is correctly identified *@
+                                @if (LastScan.DuplicateIdConflicts?.Count == 0 && LastScan.AmbiguousSlaves?.Count == 0 && (LastScan.Found?.Count(m => m.Status == "identified") ?? 0) > 0)
+                                {
+                                    <div class="modal-alert success" style="margin-bottom:0.5rem;">
+                                        All @(LastScan.Found!.Count(m => m.Status == "identified")) connected sensors have unique Slave IDs - no conflicts.
+                                    </div>
+                                }
+
+                                @* ================= BUCKET 3: UNIQUE FOUND DEVICES ("FOUND BOX") ================= *@
+                                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.4rem;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.5rem;">
+                                    <div style="font-weight:700;font-size:0.84rem;color:var(--accent-emerald);display:flex;align-items:center;gap:0.4rem;">
+                                        <span>✓</span>
+                                        <span>Verified Found Box (@(LastScan.Found?.Count(m => m.Status == "identified") ?? 0))</span>
+                                    </div>
+                                    @if (ConfirmSelection.Count > 0)
+                                    {
+                                        <button class="btn-primary-scada" style="font-size:0.8rem;padding:0.35rem 0.85rem;background:var(--accent-emerald);border-color:var(--accent-emerald);"
+                                                @onclick="StartAddFlow" @onclick:stopPropagation>
+                                            + Add Selected (@ConfirmSelection.Count) to Application
+                                        </button>
+                                    }
+                                </div>
+
+                                @if (LastScan.Found != null && LastScan.Found.Count == 0)
+                                {
+                                    <div style="color:var(--text-muted);font-size:0.85rem;padding:0.5rem 0;">
+                                        No new meters responded on this bus. Check wiring, slave addresses and gateway configuration.
+                                        @if (LastScan.UnknownResponders > 0)
+                                        {
+                                            <span style="display:block;margin-top:0.25rem;">@LastScan.UnknownResponders device(s) responded but could not be identified - not a recognized meter, or the gateway's own internal echo slave.</span>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    @foreach (var m in LastScan.Found ?? new List<ScadaDemoTestApiClient.ScannedMeterDto>())
+                                    {
+                                        var isChecked = ConfirmSelection.Contains(m.SlaveAddress);
+                                        var isUnknown = m.Status != "identified";
+                                        <div style="display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0.2rem;border-bottom:1px solid var(--border);gap:0.75rem;flex-wrap:wrap;">
+                                            <div style="display:flex;align-items:center;gap:0.75rem;">
+                                                <input type="checkbox" disabled="@isUnknown" style="accent-color:var(--primary-blue);" @onclick:stopPropagation
+                                                       checked="@isChecked" @onchange="() => ToggleOne(m.SlaveAddress)" />
+                                                <div style="width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:var(--primary-blue-light);border:1px solid rgba(2,132,199,0.2);font-size:0.85rem;font-weight:700;color:var(--primary-blue);">@m.SlaveAddress</div>
+                                                <div>
+                                                    <div style="font-weight:600;color:var(--text-primary);font-size:0.9rem;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                                                        @if (!string.IsNullOrEmpty(m.ProfileType))
+                                                        {
+                                                            <span style="font-size:0.7rem;font-weight:700;background:rgba(2,132,199,0.15);color:var(--primary-blue);padding:1px 5px;border-radius:3px;font-family:monospace;">[@m.ProfileType]</span>
+                                                        }
+                                                        <span>@m.DisplayName</span>
+                                                    </div>
+                                                    <div style="color:var(--text-muted);font-size:0.76rem;">
+                                                        @if (!isUnknown)
+                                                        {
+                                                            @MeterReading(m)
+                                                            @if (!string.IsNullOrEmpty(m.RawHexPayload))
+                                                            {
+                                                                <span style="font-family:monospace;font-size:0.7rem;color:var(--text-muted);margin-left:0.4rem;" title="Raw Identity Frame">HEX: @m.RawHexPayload</span>
+                                                            }
+                                                        }
+                                                        else
+                                                        {
+                                                            <text>Responded but register map not recognized — can't map automatically.</text>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+
+                                @if (LastScan.SkippedSlaves != null && LastScan.SkippedSlaves.Count > 0 && (LastScan.AlreadyInSystemSlaves == null || LastScan.AlreadyInSystemSlaves.Count == 0))
+                                {
+                                    <div style="margin-top:0.55rem;color:var(--text-muted);font-size:0.76rem;">
+                                        Auto-skipped @LastScan.SkippedSlaves.Count registered slave(s): @string.Join(", ", LastScan.SkippedSlaves)
+                                    </div>
+                                }
+
+                                <div style="margin-top:0.8rem;display:flex;justify-content:space-between;align-items:center;">
+                                    @if (ConfirmSelection.Count == 0)
+                                    {
+                                        <span style="color:var(--text-muted);font-size:0.78rem;">Select meter(s) above to enable adding sensors to the application.</span>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn-primary-scada" style="font-size:0.82rem;padding:0.4rem 1rem;background:var(--accent-emerald);border-color:var(--accent-emerald);"
+                                                @onclick="StartAddFlow" @onclick:stopPropagation>
+                                            + Add Selected (@ConfirmSelection.Count) Sensor(s)
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            @if (isSelected)
+            {
+                @* ---------- Step 4: configure picked meters + children ---------- *@
+                @if (PickedMeters.Count > 0)
+                {
+                    <div style="border:1px solid var(--primary-blue);border-left:4px solid var(--primary-blue);border-radius:8px;padding:0.9rem 1rem;background:var(--bg-card);margin:-0.2rem 0 0.9rem 0;">
+                        <div style="font-weight:700;color:var(--text-primary);font-size:0.88rem;margin-bottom:0.5rem;">Selected Meters (@PickedMeters.Count)</div>
+                        <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                            @foreach (var p in PickedMeters)
+                            {
+                                <div style="display:flex;justify-content:space-between;align-items:center;gap:0.7rem;flex-wrap:wrap;padding:0.5rem 0.7rem;border:1px solid var(--border);border-radius:6px;">
+                                    <div style="display:flex;align-items:center;gap:0.6rem;">
+                                        <div style="width:28px;height:28px;border-radius:6px;background:var(--primary-blue-light);display:flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;color:var(--primary-blue);">@p.Meter.SlaveAddress</div>
+                                        <div>
+                                            <div style="font-weight:600;color:var(--text-primary);font-size:0.88rem;">
+                                                @p.SensorName
+                                                @if (p.Added)
+                                                {
+                                                    <span style="color:var(--accent-emerald);font-size:0.75rem;font-weight:700;"> ✓ Added</span>
+                                                }
+                                            </div>
+                                            <div style="color:var(--text-muted);font-size:0.76rem;">
+                                                @p.Meter.DisplayName &bull; Slave @p.Meter.SlaveAddress &bull; @(p.SelectedParams.Count) parameter(s) selected
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button class="btn-secondary-scada" style="font-size:0.78rem;padding:0.35rem 0.7rem;"
+                                            @onclick="() => ConfigureMeter(p)" disabled="@p.Added">
+                                        @(p.Added ? "Added" : "Configure & Add")
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+        }
+    </div>
+}
+
+@* ---------- Available driver library chips ---------- *@
+@if (SensorLibraries.Count > 0)
+{
+    <div style="margin-top:1rem;">
+        <div style="color:var(--text-muted);font-size:0.78rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.4rem;">Installed Driver Library (auto-identified on the bus)</div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+            @foreach (var lib in SensorLibraries)
+            {
+                <span style="padding:0.3rem 0.75rem;border:1px solid var(--border);border-radius:20px;background:var(--bg-card);color:var(--text-primary);font-size:0.78rem;">
+                    @lib.DisplayName
+                </span>
+            }
+        </div>
+    </div>
+}
+
+@* ---- Add Gateway Modal ---- *@
+@if (ShowDeviceModal)
+{
+    <div class="modal-overlay" @onclick="() => ShowDeviceModal = false">
+        <div class="modal-card glass-card" style="min-width:480px;" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Add Gateway</h3>
+                <button class="modal-close" @onclick="() => ShowDeviceModal = false">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label>Gateway Name *</label>
+                        <input class="custom-input" @bind="NewDeviceName" placeholder="e.g. Plant-1 RS-485 Gateway" />
+                    </div>
+                    <div class="form-group">
+                        <label>Hardware Type *</label>
+                        <select class="custom-select" @bind="NewDeviceHardware">
+                            <option value="USR-W610">USR-W610</option>
+                            <option value="Norvi (ESP32)">Norvi (ESP32)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>IP Address *</label>
+                        <input class="custom-input" @bind="NewDeviceIp" @bind:after="OnDeviceIpChanged" placeholder="192.168.100.56" />
+                    </div>
+                    <div class="form-group">
+                        <label>Port (Default 502)</label>
+                        <input type="number" class="custom-input" @bind="NewDevicePort" />
+                    </div>
+                    <div class="form-group">
+                        <label>Baud Rate</label>
+                        <select class="custom-select" @bind="NewDeviceBaud">
+                            <option value="4800">4800</option>
+                            <option value="9600">9600</option>
+                            <option value="19200">19200</option>
+                            <option value="115200">115200</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Parity / Stop Bits</label>
+                        <select class="custom-select" @bind="NewDeviceParityStop">
+                            <option value="None">None / 1</option>
+                            <option value="Even">Even / 1</option>
+                            <option value="Odd">Odd / 1</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Response Timeout (ms)</label>
+                        <input type="number" class="custom-input" @bind="NewDeviceTimeout" />
+                    </div>
+                </div>
+                @if (DeviceFormSuccess != null)
+                {
+                    <div class="modal-alert success">✓ @DeviceFormSuccess</div>
+                }
+                @if (DeviceFormError != null)
+                {
+                    <div class="modal-alert error">✕ @DeviceFormError</div>
+                }
+                @if (DeviceIpMessage != null)
+                {
+                    <div class="modal-alert warning">⚠️ @DeviceIpMessage</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary-scada" @onclick="() => ShowDeviceModal = false" disabled="@DeviceSubmitBusy">Cancel</button>
+                <button class="btn-primary-scada" @onclick="SubmitDeviceAsync"
+                        disabled="@(DeviceSubmitBusy || string.IsNullOrWhiteSpace(NewDeviceName) || string.IsNullOrWhiteSpace(NewDeviceIp) || DeviceIpMessage != null)">
+                    Save Gateway
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Configure Meter Modal ---- *@
+@if (Configuring is { } cfg)
+{
+    <div class="modal-overlay">
+        <div class="modal-card glass-card" style="min-width:500px;">
+            <div class="modal-header">
+                <h3>Configure &amp; Add Sensor</h3>
+                <button class="modal-close" @onclick="() => Configuring = null">✕</button>
+            </div>
+            <div class="modal-body">
+                <div style="padding:0.5rem 0.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);margin-bottom:0.9rem;">
+                    <div style="font-weight:600;color:var(--text-primary);font-size:0.9rem;">@cfg.Meter.DisplayName</div>
+                    <div style="color:var(--text-muted);font-size:0.78rem;">
+                        Slave @cfg.Meter.SlaveAddress &bull; regs @cfg.Meter.StartRegister-@(cfg.Meter.StartRegister + cfg.Meter.RegisterQuantity - 1) &bull; @MeterReading(cfg.Meter)
+                    </div>
+                </div>
+
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label>Sensor Name *</label>
+                        <input class="custom-input" @bind="cfg.SensorName" placeholder="e.g. Boiler Gas Flowmeter" />
+                    </div>
+                    <div class="form-group">
+                        <label>Modbus Slave Address *</label>
+                        <input type="number" class="custom-input" @bind="cfg.SlaveAddress" @bind:after="OnConfigSlaveChanged" />
+                    </div>
+                    <div class="form-group">
+                        <label>Poll Interval (sec)</label>
+                        <input type="number" class="custom-input" @bind="cfg.PollIntervalSeconds" />
+                    </div>
+                    <div class="form-group">
+                        <label>Calibration Multiplier</label>
+                        <input type="number" step="0.1" class="custom-input" @bind="cfg.CalibrationMultiplier" />
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-top:0.6rem;">
+                    <label>Select Parameters (from this meter)</label>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.35rem;">
+                        <span style="color:var(--text-muted);font-size:0.78rem;">@(cfg.SelectedParams.Count) of @ParamsFor(cfg.Meter).Count selected</span>
+                        <span style="display:flex;gap:0.4rem;">
+                            <button type="button" style="border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;background:var(--bg-surface);color:var(--primary-blue);font-size:0.74rem;font-weight:600;cursor:pointer;"
+                                    @onclick="() => ToggleAllParams(true)">
+                                Select All
+                            </button>
+                            <button type="button" style="border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;background:var(--bg-surface);color:#ef4444;font-size:0.74rem;font-weight:600;cursor:pointer;"
+                                    @onclick="() => ToggleAllParams(false)">
+                                Clear
+                            </button>
+                        </span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:0.4rem;">
+                        @foreach (var p in ParamsFor(cfg.Meter))
+                        {
+                            <label style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);cursor:pointer;font-size:0.85rem;">
+                                <input type="checkbox" checked="@cfg.SelectedParams.Contains(p.Key)" @onchange="(e) => ToggleParam(p.Key, (bool)e.Value!)"
+                                       style="accent-color:var(--primary-blue);" />
+                                <span style="font-weight:600;color:var(--text-primary);">@p.Label</span>
+                                <span style="color:var(--text-muted);">@p.Unit</span>
+                                <span style="color:var(--primary-blue);font-family:monospace;font-size:0.72rem;margin-left:auto;">@p.Key</span>
+                            </label>
+                        }
+                    </div>
+                    @if (cfg.SelectedParams.Count == 0)
+                    {
+                        <div class="modal-alert warning" style="margin-top:0.5rem;">⚠️ Select at least one parameter to add this sensor.</div>
+                    }
+                </div>
+
+                @if (HasTankSupport(cfg.Meter.DriverKey ?? ""))
+                {
+                    <div class="tank-toggle-box">
+                        <div>
+                            <div class="tank-toggle-title">Storage Tank asset</div>
+                            <div class="tank-toggle-hint">Level = Totalizer ÷ capacity — shows on the Storage Tanks page</div>
+                        </div>
+                        <input type="checkbox" @bind="cfg.IsTank" class="tank-checkbox" />
+                    </div>
+                    @if (cfg.IsTank)
+                    {
+                        <div class="form-grid-2" style="margin-top:0.5rem;">
+                            <div class="form-group">
+                                <label>Capacity (m³)</label>
+                                <input type="number" step="0.1" min="0" class="custom-input" @bind="cfg.TankCapacity" />
+                            </div>
+                            <div class="form-group">
+                                <label>Holds</label>
+                                <input class="custom-input" @bind="cfg.LiquidType" placeholder="e.g. Water" />
+                            </div>
+                        </div>
+                    }
+                }
+
+                @if (ConfigSlaveMessage != null)
+                {
+                    <div class="modal-alert warning">⚠️ @ConfigSlaveMessage</div>
+                }
+                @if (ConfigFormError != null)
+                {
+                    <div class="modal-alert error">✕ @ConfigFormError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary-scada" @onclick="() => Configuring = null" disabled="@ConfigSubmitBusy">Cancel</button>
+                <button class="btn-primary-scada" @onclick="AddMeterAsSensor"
+                        disabled="@(ConfigSubmitBusy || string.IsNullOrWhiteSpace(cfg.SensorName) || ConfigSlaveMessage != null || cfg.SelectedParams.Count == 0)">
+                    Add Sensor to Application
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Edit Sensor Parameters Modal (existing sensor from Add Sensor to Application) ---- *@
+@if (EditingSensor != null)
+{
+    <div class="modal-overlay" @onclick="() => EditingSensor = null">
+        <div class="modal-card glass-card" style="min-width:480px;" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3>Edit Sensor Parameters</h3>
+                <button class="modal-close" @onclick="() => EditingSensor = null">✕</button>
+            </div>
+            <div class="modal-body">
+                <div style="padding:0.5rem 0.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);margin-bottom:0.9rem;">
+                    <div style="font-weight:600;color:var(--text-primary);font-size:0.9rem;">@EditingSensor.SensorName</div>
+                    <div style="color:var(--text-muted);font-size:0.78rem;">
+                        ID: <code>@EditingSensor.UniqueSensorId</code> &bull; Driver: @EditingSensor.DriverKey &bull; Slave <code>@EditingSensor.SlaveText</code>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Sensor Name</label>
+                    <input class="custom-input" @bind="EditingSensor.SensorName" />
+                </div>
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label>Poll Interval (sec)</label>
+                        <input type="number" class="custom-input" @bind="EditingSensor.PollIntervalSeconds" />
+                    </div>
+                    <div class="form-group">
+                        <label>Calibration Multiplier</label>
+                        <input type="number" step="0.1" class="custom-input" @bind="EditingSensor.CalibrationMultiplier" />
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-top:0.6rem;">
+                    <label>Select Parameters (from this meter)</label>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.35rem;">
+                        <span style="color:var(--text-muted);font-size:0.78rem;">@(EditingSensor.SelectedParams.Count) of @ParamsForDriver(EditingSensor.DriverKey).Count selected</span>
+                        <span style="display:flex;gap:0.4rem;">
+                            <button type="button" style="border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;background:var(--bg-surface);color:var(--primary-blue);font-size:0.74rem;font-weight:600;cursor:pointer;"
+                                    @onclick="() => ToggleAllEditParams(true)">
+                                Select All
+                            </button>
+                            <button type="button" style="border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;background:var(--bg-surface);color:#ef4444;font-size:0.74rem;font-weight:600;cursor:pointer;"
+                                    @onclick="() => ToggleAllEditParams(false)">
+                                Clear
+                            </button>
+                        </span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:0.4rem;">
+                        @foreach (var p in ParamsForDriver(EditingSensor.DriverKey))
+                        {
+                            <label style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.6rem;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);cursor:pointer;font-size:0.85rem;">
+                                <input type="checkbox" checked="@EditingSensor.SelectedParams.Contains(p.Key)" @onchange="(e) => ToggleEditParam(p.Key, (bool)e.Value!)"
+                                       style="accent-color:var(--primary-blue);" />
+                                <span style="font-weight:600;color:var(--text-primary);">@p.Label</span>
+                                <span style="color:var(--text-muted);">@p.Unit</span>
+                                <span style="color:var(--primary-blue);font-family:monospace;font-size:0.72rem;margin-left:auto;">@p.Key</span>
+                            </label>
+                        }
+                    </div>
+                    @if (EditingSensor.SelectedParams.Count == 0)
+                    {
+                        <div class="modal-alert warning" style="margin-top:0.5rem;">⚠️ Select at least one parameter for this sensor.</div>
+                    }
+                </div>
+
+                @if (HasTankSupport(EditingSensor.DriverKey))
+                {
+                    <div class="tank-toggle-box" style="margin-top:0.6rem;">
+                        <div>
+                            <div class="tank-toggle-title">Storage Tank asset</div>
+                            <div class="tank-toggle-hint">Level = Totalizer ÷ capacity — shows on the Storage Tanks page</div>
+                        </div>
+                        <input type="checkbox" @bind="EditingSensor.IsTank" class="tank-checkbox" />
+                    </div>
+                    @if (EditingSensor.IsTank)
+                    {
+                        <div class="form-grid-2" style="margin-top:0.5rem;">
+                            <div class="form-group">
+                                <label>Capacity (m³)</label>
+                                <input type="number" step="0.1" min="0" class="custom-input" @bind="EditingSensor.TankCapacity" />
+                            </div>
+                            <div class="form-group">
+                                <label>Holds</label>
+                                <input class="custom-input" @bind="EditingSensor.LiquidType" placeholder="e.g. Water" />
+                            </div>
+                        </div>
+                    }
+                }
+
+                @if (EditFormError != null)
+                {
+                    <div class="modal-alert error">✕ @EditFormError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary-scada" @onclick="() => EditingSensor = null" disabled="@EditBusy">Cancel</button>
+                <button class="btn-primary-scada" @onclick="SaveEditsAsync"
+                        disabled="@(EditBusy || string.IsNullOrWhiteSpace(EditingSensor.SensorName) || EditingSensor.SelectedParams.Count == 0)">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Delete Gateway Confirmation Modal ---- *@
+@if (DeviceToDelete != null)
+{
+    <div class="modal-overlay" @onclick="() => DeviceToDelete = null">
+        <div class="modal-card glass-card" style="min-width:440px;" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3 style="color:#ef4444;">Delete Gateway Device</h3>
+                <button class="modal-close" @onclick="() => DeviceToDelete = null">✕</button>
+            </div>
+            <div class="modal-body">
+                <p style="color:var(--text-muted);font-size:0.9rem;">
+                    Are you sure you want to delete gateway <strong style="color:var(--text-primary);">@DeviceToDelete.Name</strong> (<code>@DeviceToDelete.ExternalId</code>)?
+                </p>
+                <p style="color:var(--accent-rose);font-size:0.8rem;">
+                    This will permanently remove the gateway, all @DeviceToDelete.SensorCount attached sensor(s), and their telemetry tables. This cannot be undone.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary-scada" @onclick="() => DeviceToDelete = null" disabled="@DeleteBusy">Cancel</button>
+                <button class="btn-primary-scada" style="background:#ef4444;border-color:#ef4444;"
+                        @onclick="ConfirmDeleteDeviceAsync" disabled="@DeleteBusy">
+                    @(DeleteBusy ? "Deleting…" : "Confirm Delete Gateway")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ---- Delete Sensor Confirmation Modal ---- *@
+@if (SensorToDelete != null)
+{
+    <div class="modal-overlay" @onclick="() => SensorToDelete = null">
+        <div class="modal-card glass-card" style="min-width:440px;" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h3 style="color:#ef4444;">Delete Field Sensor</h3>
+                <button class="modal-close" @onclick="() => SensorToDelete = null">✕</button>
+            </div>
+            <div class="modal-body">
+                <p style="color:var(--text-muted);font-size:0.9rem;">
+                    Are you sure you want to delete sensor <strong style="color:var(--text-primary);">@SensorToDelete.Name</strong> (<code>@SensorToDelete.UniqueSensorId</code>) from gateway <strong>@SensorToDelete.DeviceName</strong>?
+                </p>
+                <p style="color:var(--accent-rose);font-size:0.8rem;">
+                    This will remove the sensor registration and drop its dynamic telemetry table (<code>@SensorToDelete.TelemetryTableName</code>).
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary-scada" @onclick="() => SensorToDelete = null" disabled="@DeleteBusy">Cancel</button>
+                <button class="btn-primary-scada" style="background:#ef4444;border-color:#ef4444;"
+                        @onclick="ConfirmDeleteSensorAsync" disabled="@DeleteBusy">
+                    @(DeleteBusy ? "Deleting…" : "Confirm Delete Sensor")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ScadaDemoTestApiClient.GatewayDeviceDto> GatewayDevices = new();
+    private List<ScadaDemoTestApiClient.SensorLibraryDto> SensorLibraries = new();
+    private bool Loading = true;
+
+    private Guid? SelectedGatewayGuid;
+    private ScadaDemoTestApiClient.GatewayDeviceDto? SelectedGateway => GatewayDevices.FirstOrDefault(d => d.Id == SelectedGatewayGuid);
+
+    private ScadaDemoTestApiClient.GatewayDeviceDto? DeviceToDelete;
+    private ScadaDemoTestApiClient.AttachedSensorDto? SensorToDelete;
+    private bool DeleteBusy;
+
+    private bool Scanning;
+    private bool ScanFailed;
+    private string ScanModeLabel = "";
+    private ScadaDemoTestApiClient.GatewayScanResultDto? LastScan;
+    private bool SelectAllFound;
+    private readonly HashSet<int> ConfirmSelection = new();
+
+    private sealed class PickedMeter
+    {
+        public required ScadaDemoTestApiClient.ScannedMeterDto Meter { get; init; }
+        public string SensorName { get; set; } = "";
+        public int SlaveAddress { get; set; }
+        public int PollIntervalSeconds { get; set; } = 5;
+        public double CalibrationMultiplier { get; set; } = 1.0;
+        public HashSet<string> SelectedParams { get; set; } = new();
+        public bool Added { get; set; }
+        public bool IsTank { get; set; }
+        public double TankCapacity { get; set; } = 1000;
+        public string LiquidType { get; set; } = "Water";
+    }
+
+    private sealed record MeterParam(string Key, string Label, string Unit);
+
+    // Meter parameter catalog per driver (mirrors ModbusMeterLibs settings):
+    // keys map to telemetry columns unless noted; extra params are stored as
+    // metadata on the sensor (MetricFields).
+    private static readonly IReadOnlyDictionary<string, List<MeterParam>> ParamCatalog =
+        new Dictionary<string, List<MeterParam>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["AOSONG_AQ3485"] = new()
+            {
+                new("TemperatureC", "Temperature", "°C"),
+                new("HumidityRH", "Humidity", "%RH"),
+            },
+            ["KAIFENG_FLOWMETER"] = new()
+            {
+                new("InstantaneousFlowRate", "Flow Rate", "Nm³/h"),
+                new("AccumulatedTotalizer", "Totalizer", "Nm³"),
+                new("Velocity", "Velocity (metadata only)", "m/s"),
+            },
+            ["KAIFENG_EM_FLOWMETER"] = new()
+            {
+                new("InstantaneousFlowRate", "Flow Rate", "m³/h"),
+                new("AccumulatedTotalizer", "Totalizer", "m³"),
+            },
+            ["VORTEX_FLOWMETER"] = new()
+            {
+                new("InstantaneousFlowRate", "Flow Rate", "m³/h"),
+                new("AccumulatedTotalizer", "Totalizer", "m³"),
+            },
+            ["SELEC_POWER_METER"] = new()
+            {
+                new("InstantaneousFlowRate", "Power", "kW"),
+                new("AccumulatedTotalizer", "Energy", "kWh"),
+            },
+        };
+
+    private List<PickedMeter> PickedMeters = new();
+    private PickedMeter? Configuring;
+    private string? ConfigSlaveMessage;
+    private string? ConfigFormError;
+
+    private sealed class SensorEditState
+    {
+        public Guid SensorId;
+        public string SensorName = "";
+        public int PollIntervalSeconds;
+        public double CalibrationMultiplier;
+        public string UniqueSensorId = "";
+        public string DriverKey = "";
+        public string SlaveText = "";
+        public HashSet<string> SelectedParams = new();
+        public bool IsTank;
+        public double TankCapacity = 1000;
+        public string LiquidType = "Water";
+    }
+
+    private SensorEditState? EditingSensor;
+    private bool EditBusy;
+    private string? EditFormError;
+
+    private bool ConfigSubmitBusy;
+
+    private List<ScadaDemoTestApiClient.AttachedSensorDto>? ChildrenSensors = new();
+
+    private Dictionary<Guid, List<ScadaDemoTestApiClient.AttachedSensorDto>> AllChildren = new();
+
+    private string? ToastMessage;
+    private bool ToastIsError;
+
+    private bool ShowDeviceModal;
+    private string NewDeviceName = "";
+    private string NewDeviceHardware = "USR-W610";
+    private string NewDeviceIp = "";
+    private int NewDevicePort = 502;
+    private int NewDeviceBaud = 9600;
+    private string NewDeviceParityStop = "None";
+    private int NewDeviceTimeout = 2000;
+    private string? DeviceFormError;
+    private string? DeviceIpMessage;
+    private string? DeviceFormSuccess;
+    private bool DeviceSubmitBusy;
+
+    private System.Threading.Timer? _timer;
+    private bool _disposed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadGatewaysAsync();
+        SensorLibraries = await Api.GetSensorLibrariesAsync();
+
+        // 4-second live refresh: gateway status + children of the selected gateway.
+        _timer = new System.Threading.Timer(async _ =>
+        {
+            if (_disposed || Scanning) return;
+            try
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (_disposed || Scanning) return;
+                    await LoadGatewaysAsync();
+                    if (SelectedGatewayGuid is Guid gid)
+                    {
+                        await RefreshChildrenAsync(gid);
+                    }
+                    if (!_disposed) StateHasChanged();
+                });
+            }
+            catch { /* circuit closed */ }
+        }, null, 1000, 4000);
+    }
+
+    private async Task LoadGatewaysAsync()
+    {
+        try
+        {
+            GatewayDevices = (await Api.GetGatewayDevicesAsync()).OrderBy(d => d.CreatedAt ?? DateTime.MaxValue).ThenBy(d => d.Id).ToList();
+            var all = await Api.GetSensorsAsync();
+            AllChildren = all.GroupBy(s => s.DeviceId).ToDictionary(g => g.Key, g => g.ToList());
+        }
+        catch { await ToastAsync("Failed to load gateways", true); }
+        Loading = false;
+    }
+
+    private async Task SelectGateway(ScadaDemoTestApiClient.GatewayDeviceDto d)
+    {
+        if (SelectedGatewayGuid == d.Id)
+        {
+            SelectedGatewayGuid = null;
+            PickedMeters.Clear();
+            ChildrenSensors = new();
+            LastScan = null;
+            ConfirmSelection.Clear();
+            return;
+        }
+        SelectedGatewayGuid = d.Id;
+        LastScan = null;
+        ScanFailed = false;
+        ConfirmSelection.Clear();
+        PickedMeters.Clear();
+        await RefreshChildrenAsync(d.Id);
+        StateHasChanged();
+    }
+
+    private async Task RefreshChildrenAsync(Guid deviceId)
+    {
+        try
+        {
+            ChildrenSensors = await Api.GetSensorsAsync(deviceId);
+            AllChildren[deviceId] = ChildrenSensors ?? new();
+        }
+        catch { ChildrenSensors = new(); }
+    }
+
+    private void PromptDeleteDevice(ScadaDemoTestApiClient.GatewayDeviceDto d)
+    {
+        DeviceToDelete = d;
+    }
+
+    private async Task ConfirmDeleteDeviceAsync()
+    {
+        if (DeviceToDelete == null || DeleteBusy) return;
+        DeleteBusy = true;
+        var name = DeviceToDelete.Name;
+        var id = DeviceToDelete.Id;
+        var (ok, err) = await Api.DeleteGatewayDeviceAsync(id);
+        DeleteBusy = false;
+        DeviceToDelete = null;
+        if (!ok)
+        {
+            await ToastAsync(err ?? "Failed to delete gateway.", true);
+            return;
+        }
+        if (SelectedGatewayGuid == id)
+        {
+            SelectedGatewayGuid = null;
+            PickedMeters.Clear();
+            ChildrenSensors = new();
+            LastScan = null;
+            ConfirmSelection.Clear();
+        }
+        await LoadGatewaysAsync();
+        await ToastAsync($"Gateway '{name}' and its telemetry tables deleted.", false);
+    }
+
+    private void PromptDeleteSensor(ScadaDemoTestApiClient.AttachedSensorDto s)
+    {
+        SensorToDelete = s;
+    }
+
+    private async Task ConfirmDeleteSensorAsync()
+    {
+        if (SensorToDelete == null || DeleteBusy) return;
+        DeleteBusy = true;
+        var name = SensorToDelete.Name;
+        var sensorId = SensorToDelete.Id;
+        var owner = SensorToDelete.DeviceId;
+        var (ok, err) = await Api.DeleteSensorAsync(sensorId);
+        DeleteBusy = false;
+        SensorToDelete = null;
+        if (!ok)
+        {
+            await ToastAsync(err ?? "Failed to delete sensor.", true);
+            return;
+        }
+        ChildrenSensors?.RemoveAll(s => s.Id == sensorId);
+        if (AllChildren.TryGetValue(owner, out var ownerList)) ownerList.RemoveAll(s => s.Id == sensorId);
+        if (SelectedGatewayGuid is Guid gid2) await RefreshChildrenAsync(gid2);
+        await ToastAsync($"Sensor '{name}' and its telemetry table deleted.", false);
+    }
+
+    private async Task QuickScanFromCard(ScadaDemoTestApiClient.GatewayDeviceDto d)
+    {
+        if (Scanning) return;
+        if (SelectedGatewayGuid != d.Id)
+        {
+            await SelectGateway(d);
+        }
+        await FindSensorsAsync(passes: 1, deepDuplicateCheck: false, "Quick 1-20");
+    }
+
+    private async Task FullScanFromCard(ScadaDemoTestApiClient.GatewayDeviceDto d)
+    {
+        if (Scanning) return;
+        if (SelectedGatewayGuid != d.Id)
+        {
+            await SelectGateway(d);
+        }
+        await FindSensorsAsync(passes: 0, deepDuplicateCheck: true, "Full 1-247");
+    }
+
+    private async Task FindSensorsAsync(int passes, bool deepDuplicateCheck, string modeLabel)
+    {
+        if (Scanning || SelectedGatewayGuid is not Guid gid) return;
+        Scanning = true;
+        ScanFailed = false;
+        ScanModeLabel = modeLabel;
+        ConfirmSelection.Clear();
+
+        try
+        {
+            var result = await Api.ScanGatewayBusAsync(gid, probeTimeoutMs: 200, endAddress: passes > 0 ? 20 : 247, passes: passes, deepDuplicateCheck: deepDuplicateCheck);
+            if (result is null)
+            {
+                ScanFailed = true;
+            }
+            else
+            {
+                result = result with
+                {
+                    Found = result.Found ?? new(),
+                    SkippedSlaves = result.SkippedSlaves ?? new(),
+                    AmbiguousSlaves = result.AmbiguousSlaves ?? new(),
+                    DuplicateIdConflicts = result.DuplicateIdConflicts ?? new(),
+                    AlreadyInSystemSlaves = result.AlreadyInSystemSlaves ?? new()
+                };
+                LastScan = result;
+                SelectAllFound = false;
+                ScanFailed = !result.ConnectivityOk && result.Found.Count == 0 && result.DuplicateIdConflicts.Count == 0 && result.AlreadyInSystemSlaves.Count == 0;
+            }
+        }
+        catch
+        {
+            ScanFailed = true;
+        }
+        finally
+        {
+            Scanning = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private void QuickScanAsync() { _ = FindSensorsAsync(passes: 1, deepDuplicateCheck: false, "Quick 1-20"); }
+    private void FullScanAsync() { _ = FindSensorsAsync(passes: 0, deepDuplicateCheck: true, "Full 1-247"); }
+
+    private void ToggleOne(int slave)
+    {
+        if (!ConfirmSelection.Remove(slave))
+        {
+            ConfirmSelection.Add(slave);
+        }
+        var found = LastScan?.Found ?? new();
+        SelectAllFound = found.Count > 0 && found.All(m => ConfirmSelection.Contains(m.SlaveAddress));
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (LastScan == null) return;
+        ConfirmSelection.Clear();
+        if (SelectAllFound)
+        {
+            foreach (var m in LastScan.Found.Where(m => m.Status == "identified"))
+            {
+                ConfirmSelection.Add(m.SlaveAddress);
+            }
+        }
+    }
+
+    private void ClearScan()
+    {
+        LastScan = null;
+        ScanFailed = false;
+        ConfirmSelection.Clear();
+        SelectAllFound = false;
+    }
+
+    private async Task StartAddFlow()
+    {
+        if (LastScan == null) return;
+
+        foreach (var m in LastScan.Found.Where(m => ConfirmSelection.Contains(m.SlaveAddress) && m.Status == "identified"))
+        {
+            if (PickedMeters.Any(p => p.Meter.SlaveAddress == m.SlaveAddress)) continue;
+
+            var defaults = ParamCatalog.TryGetValue(m.DriverKey ?? "", out var list) ? list : new List<MeterParam>();
+            PickedMeters.Add(new PickedMeter
+            {
+                Meter = m,
+                SensorName = m.SuggestedName,
+                SlaveAddress = m.SlaveAddress,
+                PollIntervalSeconds = m.DefaultPollIntervalSeconds > 0 ? m.DefaultPollIntervalSeconds : 5,
+                SelectedParams = new HashSet<string>(defaults.Select(p => p.Key)),
+            });
+        }
+
+        if (PickedMeters.Count > 0)
+        {
+            await ToastAsync($"{PickedMeters.Count} meter(s) selected — configure parameters for each one.", false);
+            OpenNextConfigure();
+        }
+        StateHasChanged();
+    }
+
+    private void OpenNextConfigure()
+    {
+        var next = PickedMeters.FirstOrDefault(p => !p.Added);
+        if (next != null)
+        {
+            ConfigureMeter(next);
+        }
+    }
+
+    private void ConfigureMeter(PickedMeter p)
+    {
+        ConfigSlaveMessage = null;
+        ConfigFormError = null;
+        Configuring = p;
+        OnConfigSlaveChanged();
+    }
+
+    private static List<MeterParam> ParamsFor(ScadaDemoTestApiClient.ScannedMeterDto m) =>
+        ParamCatalog.TryGetValue(m.DriverKey ?? "", out var list) ? list : new List<MeterParam>();
+
+    private void ToggleParam(string key, bool value)
+    {
+        if (Configuring == null) return;
+        if (value) Configuring.SelectedParams.Add(key);
+        else Configuring.SelectedParams.Remove(key);
+    }
+
+    private static List<MeterParam> ParamsForDriver(string driverKey) =>
+        ParamCatalog.TryGetValue(driverKey, out var list) ? list : new List<MeterParam>();
+
+    private void ToggleAllParams(bool on)
+    {
+        if (Configuring == null) return;
+        Configuring.SelectedParams.Clear();
+        if (on)
+        {
+            foreach (var p in ParamsFor(Configuring.Meter))
+            {
+                Configuring.SelectedParams.Add(p.Key);
+            }
+        }
+    }
+
+    private void ToggleAllEditParams(bool on)
+    {
+        if (EditingSensor == null) return;
+        EditingSensor.SelectedParams.Clear();
+        if (on)
+        {
+            foreach (var p in ParamsForDriver(EditingSensor.DriverKey))
+            {
+                EditingSensor.SelectedParams.Add(p.Key);
+            }
+        }
+    }
+
+    private void ToggleEditParam(string key, bool value)
+    {
+        if (EditingSensor == null) return;
+        if (value) EditingSensor.SelectedParams.Add(key);
+        else EditingSensor.SelectedParams.Remove(key);
+    }
+
+    private static Dictionary<string, string> ParseMetricFields(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? new();
+        }
+        catch { return new(); }
+    }
+
+    // Drivers that report a volume totalizer -> the only ones that can back a tank.
+    private static readonly HashSet<string> TankCapableDrivers =
+        new(StringComparer.OrdinalIgnoreCase) { "KAIFENG_EM_FLOWMETER", "VORTEX_FLOWMETER" };
+
+    private static bool HasTankSupport(string driverKey) =>
+        TankCapableDrivers.Contains(driverKey);
+
+    // Sensor.Config JSON persisted by the API. Only a sensor flagged as a tank
+    // becomes a tank on the Storage Tanks page (thousands of other sensors stay
+    // plain meters).
+    private sealed class SensorConfigDto
+    {
+        public bool IsTank { get; set; }
+        public double Capacity { get; set; }
+        public string? LiquidType { get; set; }
+    }
+
+    private static SensorConfigDto ParseSensorConfig(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<SensorConfigDto>(json) ?? new();
+        }
+        catch { return new(); }
+    }
+
+    private static string? BuildTankConfig(bool isTank, double capacity, string liquidType)
+    {
+        if (!isTank) return null;
+        var cfg = new Dictionary<string, object>
+        {
+            ["isTank"] = true,
+            ["capacity"] = capacity > 0 ? capacity : 1000,
+            ["liquidType"] = string.IsNullOrWhiteSpace(liquidType) ? "Water" : liquidType.Trim(),
+            ["levelSource"] = "AccumulatedTotalizer"
+        };
+        return System.Text.Json.JsonSerializer.Serialize(cfg);
+    }
+
+    private void OpenEditSensor(ScadaDemoTestApiClient.AttachedSensorDto s)
+    {
+        EditFormError = null;
+        var current = ParseMetricFields(s.MetricFields);
+        var tank = ParseSensorConfig(s.Config);
+        EditingSensor = new SensorEditState
+        {
+            SensorId = s.Id,
+            SensorName = s.Name,
+            PollIntervalSeconds = s.PollIntervalSeconds,
+            CalibrationMultiplier = s.CalibrationMultiplier,
+            UniqueSensorId = s.UniqueSensorId,
+            DriverKey = s.SensorTypeKey,
+            SlaveText = $"{s.SlaveAddress} (0x{s.SlaveAddress:X2})",
+            SelectedParams = new HashSet<string>(current.Keys),
+            IsTank = tank.IsTank,
+            TankCapacity = tank.Capacity > 0 ? tank.Capacity : 1000,
+            LiquidType = string.IsNullOrWhiteSpace(tank.LiquidType) ? "Water" : tank.LiquidType
+        };
+    }
+
+    private async Task SaveEditsAsync()
+    {
+        if (EditingSensor == null || EditBusy) return;
+        if (EditingSensor.SelectedParams.Count == 0)
+        {
+            EditFormError = "Select at least one parameter for this sensor.";
+            return;
+        }
+
+        EditBusy = true;
+        EditFormError = null;
+
+        var selectedParams = new Dictionary<string, string>();
+        foreach (var p in ParamsForDriver(EditingSensor.DriverKey))
+        {
+            if (EditingSensor.SelectedParams.Contains(p.Key))
+            {
+                selectedParams[p.Key] = p.Unit;
+            }
+        }
+
+        // "" (empty string) explicitly CLEARS the tank flag when the operator
+        // unchecks "Storage Tank asset" (the API only replaces Config when non-null).
+        var config = EditingSensor.IsTank
+            ? BuildTankConfig(true, EditingSensor.TankCapacity, EditingSensor.LiquidType)
+            : "";
+
+        var req = new ScadaDemoTestApiClient.UpdateSensorRequest(
+            EditingSensor.SensorName.Trim(),
+            EditingSensor.PollIntervalSeconds,
+            EditingSensor.CalibrationMultiplier,
+            selectedParams.Count > 0 ? selectedParams : null,
+            config);
+
+        var (ok, _, err) = await Api.UpdateSensorAsync(EditingSensor.SensorId, req);
+        EditBusy = false;
+
+        if (!ok)
+        {
+            EditFormError = err ?? "Update failed.";
+            return;
+        }
+
+        EditingSensor = null;
+        if (SelectedGatewayGuid is Guid gid) await RefreshChildrenAsync(gid);
+        await ToastAsync("Sensor parameters updated.", false);
+        StateHasChanged();
+    }
+
+    private void OnConfigSlaveChanged()
+    {
+        ConfigSlaveMessage = null;
+        if (Configuring == null) return;
+        var addr = Configuring.SlaveAddress;
+        if (addr < 1 || addr > 247)
+        {
+            ConfigSlaveMessage = "Modbus slave address must be between 1 and 247.";
+            return;
+        }
+
+        var used = (ChildrenSensors ?? new()).Any(s => s.SlaveAddress == addr) ||
+                   PickedMeters.Any(p => p != Configuring && !p.Added && p.SlaveAddress == addr);
+        if (used)
+        {
+            ConfigSlaveMessage = $"Slave address {addr} is already used on this gateway — each meter needs a unique address.";
+        }
+    }
+
+    private async Task AddMeterAsSensor()
+    {
+        if (Configuring == null || ConfigSubmitBusy) return;
+        ConfigSubmitBusy = true;
+        ConfigFormError = null;
+
+        OnConfigSlaveChanged();
+        if (ConfigSlaveMessage != null)
+        {
+            ConfigSubmitBusy = false;
+            return;
+        }
+
+        var selectedParams = new Dictionary<string, string>();
+        foreach (var p in ParamsFor(Configuring.Meter))
+        {
+            if (Configuring.SelectedParams.Contains(p.Key))
+            {
+                selectedParams[p.Key] = p.Unit;
+            }
+        }
+
+        if (SelectedGatewayGuid is not Guid gid)
+        {
+            ConfigSubmitBusy = false;
+            return;
+        }
+
+        var req = new ScadaDemoTestApiClient.CreateSensorRequest(
+            gid,
+            Configuring.SensorName.Trim(),
+            Configuring.Meter.DriverKey ?? "",
+            Configuring.SlaveAddress,
+            Configuring.PollIntervalSeconds,
+            Configuring.CalibrationMultiplier,
+            selectedParams.Count > 0 ? selectedParams : null,
+            BuildTankConfig(Configuring.IsTank, Configuring.TankCapacity, Configuring.LiquidType));
+
+        var (ok, data, err) = await Api.CreateSensorAsync(req);
+        ConfigSubmitBusy = false;
+
+        if (!ok)
+        {
+            ConfigFormError = err ?? "Failed to create sensor.";
+            return;
+        }
+
+        Configuring.Added = true;
+        var addedName = Configuring.SensorName;
+        Configuring = null;
+        await RefreshChildrenAsync(gid);
+        await LoadGatewaysAsync();
+        await ToastAsync($"Sensor '{addedName}' added as a child of gateway '{SelectedGateway?.Name ?? ""}' -> Table: {data!.TelemetryTableName}", false);
+        StateHasChanged();
+        OpenNextConfigure();
+    }
+
+    private void OpenAddDeviceModal()
+    {
+        ShowDeviceModal = true;
+        ToastMessage = null;
+        NewDeviceName = "";
+        NewDeviceHardware = "USR-W610";
+        NewDeviceIp = "";
+        NewDevicePort = 502;
+        NewDeviceBaud = 9600;
+        NewDeviceParityStop = "None";
+        NewDeviceTimeout = 2000;
+        DeviceFormError = null;
+        DeviceIpMessage = null;
+        DeviceFormSuccess = null;
+        DeviceSubmitBusy = false;
+    }
+
+    private static string SanitizeIp(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        var s = raw.Trim();
+        if (s.StartsWith("http://", StringComparison.OrdinalIgnoreCase)) s = s["http://".Length..];
+        else if (s.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) s = s["https://".Length..];
+        var slashIdx = s.IndexOf('/');
+        if (slashIdx >= 0) s = s[..slashIdx];
+        var colonIdx = s.IndexOf(':');
+        if (colonIdx >= 0 && !s.Contains("::")) s = s[..colonIdx];
+        return s.Trim();
+    }
+
+    private void OnDeviceIpChanged()
+    {
+        DeviceFormError = null;
+        DeviceIpMessage = null;
+        NewDeviceIp = SanitizeIp(NewDeviceIp);
+        var ip = NewDeviceIp;
+        if (ip.Length == 0) return;
+        var dup = GatewayDevices.FirstOrDefault(d =>
+            string.Equals(SanitizeIp(d.IpAddress ?? ""), ip, StringComparison.OrdinalIgnoreCase));
+        if (dup != null)
+        {
+            DeviceIpMessage = $"IP address '{ip}' is already registered to gateway '{dup.Name}' ({dup.ExternalId}).";
+        }
+    }
+
+    private async Task SubmitDeviceAsync()
+    {
+        if (DeviceSubmitBusy) return;
+        DeviceSubmitBusy = true;
+        ToastMessage = null;
+        DeviceFormError = null;
+        DeviceFormSuccess = null;
+
+        var ip = SanitizeIp(NewDeviceIp);
+        var dup = GatewayDevices.FirstOrDefault(d =>
+            string.Equals(SanitizeIp(d.IpAddress ?? ""), ip, StringComparison.OrdinalIgnoreCase));
+        if (dup != null)
+        {
+            DeviceFormError = $"IP address '{ip}' is already registered to gateway '{dup.Name}' ({dup.ExternalId}).";
+            DeviceSubmitBusy = false;
+            return;
+        }
+
+        var req = new ScadaDemoTestApiClient.CreateGatewayDeviceRequest(
+            NewDeviceName.Trim(), NewDeviceHardware, ip, NewDevicePort, NewDeviceBaud,
+            NewDeviceParityStop, 1, NewDeviceTimeout, null);
+
+        var (ok, data, err) = await Api.CreateGatewayDeviceAsync(req);
+        if (!ok)
+        {
+            DeviceFormError = err ?? "Failed to create gateway device.";
+            DeviceSubmitBusy = false;
+            return;
+        }
+
+        DeviceFormSuccess = $"Gateway '{data!.Name}' connected successfully.";
+        DeviceIpMessage = null;
+        await Task.Delay(450); // brief success pulse before closing the modal
+        ShowDeviceModal = false;
+        DeviceSubmitBusy = false;
+        await LoadGatewaysAsync();
+        await ToastAsync($"Gateway '{data.Name}' registered — it will show ONLINE when reachable and OFFLINE when disconnected.", false);
+    }
+
+    private static string MeterReading(ScadaDemoTestApiClient.ScannedMeterDto m)
+        => $"{MetricValueFormat.Display(m.LivePrimary, m.UnitPrimary)} {m.UnitPrimary}  |  {MetricValueFormat.Display(m.LiveSecondary, m.UnitSecondary)} {m.UnitSecondary}";
+
+    private int _toastSeq;
+    private async Task ToastAsync(string msg, bool err)
+    {
+        var seq = ++_toastSeq;
+        ToastMessage = msg;
+        ToastIsError = err;
+        StateHasChanged();
+        await Task.Delay(1700);
+        if (_toastSeq == seq && ToastMessage == msg)
+        {
+            ToastMessage = null;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _timer?.Dispose();
+    }
+}

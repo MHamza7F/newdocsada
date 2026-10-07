@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:scada_demo_test.Maui.ViewModels"
+             x:Class="scada_demo_test.Maui.Views.DevicesPage"
+             x:DataType="vm:DevicesViewModel"
+             Title="Devices &amp; Sensors"
+             BackgroundColor="{StaticResource ScadaBgDark}">
+
+    <RefreshView IsRefreshing="{Binding IsBusy}" Command="{Binding LoadDevicesCommand}">
+        <ScrollView>
+            <VerticalStackLayout Padding="16" Spacing="16">
+
+                <!-- Header Section -->
+                <Grid ColumnDefinitions="*, Auto">
+                    <VerticalStackLayout Grid.Column="0" Spacing="2">
+                        <Label Text="Connected Sensors &amp; Modbus Slaves" Style="{StaticResource ScadaPageTitle}" />
+                        <Label Text="Hardware gateways, IP addresses &amp; real-time telemetry" Style="{StaticResource ScadaPageSubtitle}" />
+                    </VerticalStackLayout>
+
+                    <Border Grid.Column="1"
+                            StrokeShape="RoundRectangle 8"
+                            Stroke="{StaticResource ScadaBorder}"
+                            BackgroundColor="{StaticResource ScadaBgSurface}"
+                            Padding="12,6"
+                            VerticalOptions="Center">
+                        <HorizontalStackLayout Spacing="6">
+                            <BoxView Color="{StaticResource ScadaEmerald}" WidthRequest="8" HeightRequest="8" CornerRadius="4" VerticalOptions="Center" />
+                            <Label Text="{Binding OnlineCount, StringFormat='{0} Online'}"
+                                   TextColor="{StaticResource ScadaEmerald}"
+                                   FontSize="12"
+                                   FontAttributes="Bold" />
+                        </HorizontalStackLayout>
+                    </Border>
+                </Grid>
+
+                <!-- Search Bar -->
+                <Border StrokeShape="RoundRectangle 8"
+                        Stroke="{StaticResource ScadaBorder}"
+                        BackgroundColor="{StaticResource ScadaBgSurface}"
+                        Padding="12,2">
+                    <Grid ColumnDefinitions="Auto, *">
+                        <Label Grid.Column="0" Text="🔍" FontSize="14" VerticalOptions="Center" Margin="0,0,8,0" />
+                        <Entry Grid.Column="1"
+                               Text="{Binding SearchText}"
+                               Placeholder="Search devices by ID, name or IP..."
+                               PlaceholderColor="{StaticResource ScadaTextDim}"
+                               TextColor="{StaticResource ScadaTextPrimary}"
+                               ClearButtonVisibility="WhileEditing" />
+                    </Grid>
+                </Border>
+
+                <!-- Devices Collection -->
+                <CollectionView ItemsSource="{Binding Devices}" SelectionMode="None">
+                    <CollectionView.EmptyView>
+                        <VerticalStackLayout Padding="40" Spacing="8" HorizontalOptions="Center">
+                            <Label Text="📡" FontSize="36" HorizontalTextAlignment="Center" />
+                            <Label Text="No telemetry devices found." TextColor="{StaticResource ScadaTextMuted}" HorizontalTextAlignment="Center" />
+                        </VerticalStackLayout>
+                    </CollectionView.EmptyView>
+
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:DeviceItemModel">
+                            <Border Margin="0,0,0,12"
+                                    StrokeShape="RoundRectangle 12"
+                                    Stroke="{StaticResource ScadaBorder}"
+                                    BackgroundColor="{StaticResource ScadaBgSurface}"
+                                    Padding="16">
+                                <VerticalStackLayout Spacing="10">
+
+                                    <!-- Top Row: Badge, Name, Status -->
+                                    <Grid ColumnDefinitions="Auto, *, Auto">
+                                        <Border Grid.Column="0"
+                                                StrokeShape="RoundRectangle 6"
+                                                BackgroundColor="{StaticResource ScadaBgCard}"
+                                                Stroke="{StaticResource ScadaCyan}"
+                                                Padding="8,4"
+                                                Margin="0,0,10,0">
+                                            <Label Text="{Binding Device.ExternalId}"
+                                                   TextColor="{StaticResource ScadaCyan}"
+                                                   FontSize="12"
+                                                   FontAttributes="Bold" />
+                                        </Border>
+
+                                        <Label Grid.Column="1"
+                                               Text="{Binding Device.Name}"
+                                               TextColor="{StaticResource ScadaTextPrimary}"
+                                               FontSize="15"
+                                               FontAttributes="Bold"
+                                               VerticalOptions="Center" />
+
+                                        <Border Grid.Column="2"
+                                                StrokeShape="RoundRectangle 6"
+                                                BackgroundColor="#0F352E"
+                                                Stroke="{StaticResource ScadaEmerald}"
+                                                Padding="8,4"
+                                                VerticalOptions="Center">
+                                            <Label Text="{Binding Device.Status}"
+                                                   TextColor="{StaticResource ScadaEmerald}"
+                                                   FontSize="11"
+                                                   FontAttributes="Bold" />
+                                        </Border>
+                                    </Grid>
+
+                                    <!-- Live Telemetry Card -->
+                                    <Border StrokeShape="RoundRectangle 8"
+                                            BackgroundColor="{StaticResource ScadaBgCard}"
+                                            Padding="12,8">
+                                        <Grid ColumnDefinitions="*, Auto">
+                                            <VerticalStackLayout Grid.Column="0" Spacing="2">
+                                                <Label Text="Latest Live Stream Reading" TextColor="{StaticResource ScadaTextDim}" FontSize="11" />
+                                                <Label Text="{Binding LiveMetricValue}" TextColor="{StaticResource ScadaCyan}" FontSize="16" FontAttributes="Bold" />
+                                            </VerticalStackLayout>
+
+                                            <Border Grid.Column="1"
+                                                    StrokeShape="RoundRectangle 6"
+                                                    BackgroundColor="{StaticResource ScadaBgSurface}"
+                                                    Padding="8,4"
+                                                    VerticalOptions="Center">
+                                                <Label Text="{Binding ProtocolText}" TextColor="{StaticResource ScadaTextSecondary}" FontSize="11" />
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- Details Row: Modbus ID, IP, Last Seen -->
+                                    <Grid ColumnDefinitions="*, *, *">
+                                        <VerticalStackLayout Grid.Column="0" Spacing="2">
+                                            <Label Text="Slave ID" TextColor="{StaticResource ScadaTextDim}" FontSize="10" />
+                                            <Label Text="{Binding Device.ModbusSlaveId, StringFormat='ID #{0}'}" TextColor="{StaticResource ScadaTextPrimary}" FontSize="12" FontAttributes="Bold" />
+                                        </VerticalStackLayout>
+
+                                        <VerticalStackLayout Grid.Column="1" Spacing="2">
+                                            <Label Text="IP Address" TextColor="{StaticResource ScadaTextDim}" FontSize="10" />
+                                            <Label Text="{Binding Device.IpAddress, FallbackValue='DHCP / Gateway'}" TextColor="{StaticResource ScadaTextSecondary}" FontSize="11" />
+                                        </VerticalStackLayout>
+
+                                        <VerticalStackLayout Grid.Column="2" Spacing="2">
+                                            <Label Text="Last Contact" TextColor="{StaticResource ScadaTextDim}" FontSize="10" />
+                                            <Label Text="{Binding FormattedLastSeen}" TextColor="{StaticResource ScadaTextMuted}" FontSize="11" />
+                                        </VerticalStackLayout>
+                                    </Grid>
+
+                                </VerticalStackLayout>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </RefreshView>
+</ContentPage>

@@ -1,0 +1,315 @@
+﻿@page "/tanks"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Tab:Tanks")]
+@using scada_demo_test.Web.Services
+@inject ScadaDemoTestApiClient Api
+@inject LiveTelemetryState State
+@implements IAsyncDisposable
+
+<div class="page-header">
+    <h1 class="page-title">Storage Tanks</h1>
+    <p class="page-subtitle page-subtitle-soft">Only sensors flagged as storage tanks show here - level is live Totalizer / capacity</p>
+</div>
+
+@if (TankList.Count == 0 && !Loading)
+{
+    <div class="glass-card" style="text-align:center;padding:3rem;">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:0.5rem;">
+            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
+        </svg>
+        <h3 style="color:var(--text-primary);">No Tanks Configured</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem;max-width:560px;margin:0 auto;">
+            Only a sensor that has a tank flag becomes a tank here. Open <strong>Gateway</strong> (or Norvi / Devices), find a flowmeter
+            on the bus and tick <strong>Storage Tank asset</strong> in the Configure &amp; Add modal - give it a capacity (m&sup3;) and what it
+            holds. Its Totalizer drives the liquid level.
+        </p>
+    </div>
+}
+else
+{
+    <div class="tk-grid">
+        @foreach (var tank in TankList)
+        {
+            <div class="tk-card">
+                <div class="tk-header">
+                    <div class="tk-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary-blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/>
+                        </svg>
+                        <span>@tank.Name</span>
+                    </div>
+                    <span class="status-pill @(tank.IsOnline ? "online" : "offline")">
+                        <span class="status-dot @(tank.IsOnline ? "online" : "offline")"></span>
+                        @(tank.IsOnline ? "ONLINE" : "OFFLINE")
+                    </span>
+                </div>
+
+                <div class="tk-body">
+                    <div class="tk-svg-wrap">
+                        <svg class="tk-svg" viewBox="0 0 220 264">
+                            <defs>
+                                <linearGradient id="tkgrad-@(tank.Suffix)" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0" stop-color="#7dd3fc" />
+                                    <stop offset="1" stop-color="#0284c7" />
+                                </linearGradient>
+                                <clipPath id="tkclip-@(tank.Suffix)">
+                                    <rect x="38" y="36" width="144" height="190" rx="12" />
+                                </clipPath>
+                            </defs>
+
+                            @* scale marks *@
+                            @for (var i = 0; i <= 4; i++)
+                            {
+                                var my = 36 + (190 / 4f) * i;
+                                <line x1="38" y1="@my" x2="182" y2="@my" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 5" />
+                            }
+
+                            @* tank shell *@
+                            <rect x="38" y="32" width="144" height="198" rx="12" fill="@(tank.IsOnline ? "#f8fafc" : "#f1f5f9")" stroke="#cbd5e1" stroke-width="3" />
+
+                            @* liquid fill + wave *@
+                            <g clip-path="url(#tkclip-@(tank.Suffix))">
+                                @if (tank.Percent > 0)
+                                {
+                                    <rect x="38" y="@(LevelTop(tank.Percent))" width="144" height="@(226 - LevelTop(tank.Percent))" fill="url(#tkgrad-@(tank.Suffix))" opacity="0.85" />
+                                    <g transform="translate(0, @(LevelTop(tank.Percent)))">
+                                        <g class="tk-wave">
+                                            <path class="tk-wave-a" d="M -80,0 Q -65,-13 -50,0 T -20,0 T 10,0 T 40,0 T 70,0 T 100,0 T 130,0 T 160,0 T 190,0 T 220,0 T 250,0 L 300,34 L -80,34 Z" fill="url(#tkgrad-@(tank.Suffix))" opacity="0.95" />
+                                            <path class="tk-wave-b" d="M -80,0 Q -70,-8 -60,0 T -40,0 T -20,0 T 0,0 T 20,0 T 40,0 T 60,0 T 80,0 T 100,0 T 120,0 T 140,0 T 160,0 T 180,0 T 200,0 T 220,0 T 240,0 T 260,0 T 280,0 T 300,0 L 300,8 L -80,8 Z" fill="#bae6fd" opacity="0.55" />
+                                        </g>
+                                    </g>
+                                }
+                            </g>
+
+                            @* glass shine *@
+                            <line x1="50" y1="40" x2="50" y2="222" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.55" />
+                        </svg>
+
+                        @if (tank.Percent >= 100)
+                        {
+                            <span class="tk-svg-tag full">FULL</span>
+                        }
+                        else if (tank.Percent < 2)
+                        {
+                            <span class="tk-svg-tag">EMPTY</span>
+                        }
+                    </div>
+
+                    <div class="tk-read">
+                        <div class="tk-pct @(tank.IsOnline ? "" : "muted")">
+                            @(tank.IsOnline ? $"{tank.Percent:0.0}" : "--")<span class="tk-pct-unit">%</span>
+                        </div>
+                        <div class="tk-stat">
+                            <span class="tk-stat-label">Volume</span>
+                            <span class="tk-stat-value">@MetricValueFormat.Display(tank.Totalizer, tank.TotalizerUnit) @tank.TotalizerUnit</span>
+                        </div>
+                        <div class="tk-stat">
+                            <span class="tk-stat-label">Flow</span>
+                            <span class="tk-stat-value">@MetricValueFormat.Display(tank.Flow, tank.FlowUnit) @tank.FlowUnit</span>
+                        </div>
+                        <div class="tk-stat">
+                            <span class="tk-stat-label">Capacity</span>
+                            <span class="tk-stat-value">@tank.Capacity.ToString("0.0") m&sup3;</span>
+                        </div>
+                        <div class="tk-stat">
+                            <span class="tk-stat-label">Holds</span>
+                            <span class="tk-stat-value">@tank.LiquidType</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tk-conn">
+                    <span class="tk-conn-dot @(tank.IsOnline ? "online" : "offline")"></span>
+                    <div>
+                        <div class="tk-conn-line">@tank.UniqueSensorId &bull; Slave @tank.SlaveAddress &bull; via @tank.DeviceName</div>
+                        <div class="tk-conn-seen">Last seen @(tank.LastSeen.HasValue ? tank.LastSeen.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : "&mdash;")</div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private sealed class TankView
+    {
+        public Guid SensorId;
+        public string Name = "";
+        public string UniqueSensorId = "";
+        public string DeviceName = "";
+        public string DriverKey = "";
+        public int SlaveAddress;
+        public double Capacity = 1000;
+        public string LiquidType = "Water";
+        public bool IsOnline;
+        public double? Totalizer;
+        public string? TotalizerUnit = "m³";
+        public double? Flow;
+        public string? FlowUnit = "m³/h";
+        public DateTime? LastSeen;
+
+        public string Suffix => SensorId.ToString("N");
+
+        public double Percent
+        {
+            get
+            {
+                if (!Totalizer.HasValue || Capacity <= 0) return 0;
+                var pct = Totalizer.Value / Capacity * 100.0;
+                if (pct < 0) return 0;
+                if (pct > 100) return 100;
+                return pct;
+            }
+        }
+    }
+
+    private static float LevelTop(double percent)
+    {
+        const float innerTop = 36;
+        const float innerH = 190;
+        return innerTop + innerH - (float)percent / 100f * innerH;
+    }
+
+    private sealed class SensorConfigDto
+    {
+        public bool IsTank { get; set; }
+        public double Capacity { get; set; }
+        public string? LiquidType { get; set; }
+    }
+
+    private static SensorConfigDto ParseSensorConfig(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try { return System.Text.Json.JsonSerializer.Deserialize<SensorConfigDto>(json) ?? new(); }
+        catch { return new(); }
+    }
+
+    private List<TankView> TankList = new();
+    private bool Loading = true;
+    private bool _disposed;
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.OnChange += HandleLiveChange;
+        await RefreshAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _refreshTimer = new System.Threading.Timer(async _ =>
+            {
+                if (_disposed) return;
+                try { await InvokeAsync(RefreshAsync); }
+                catch { /* circuit disposed */ }
+            }, null, 4000, 4000);
+        }
+    }
+
+    private void HandleLiveChange()
+    {
+        if (_disposed) return;
+        _ = InvokeAsync(() =>
+        {
+            try
+            {
+                if (!_disposed)
+                {
+                    SyncLiveValues();
+                    StateHasChanged();
+                }
+            }
+            catch { }
+        });
+    }
+
+    private void SyncLiveValues()
+    {
+        foreach (var t in TankList)
+        {
+            // DTO (worker-maintained) IsOnline is the base truth; the live bus only
+            // overrides it when it actually has a reading for this tank.
+            if (State.Meters.TryGetValue(t.UniqueSensorId, out var meter))
+            {
+                t.IsOnline = meter.IsOnline;
+                if (meter.LastSeen != default) t.LastSeen = meter.LastSeen;
+                if (meter.Values.TryGetValue("AccumulatedTotalizer", out var tot))
+                {
+                    t.Totalizer = tot.Value;
+                    t.TotalizerUnit = tot.Unit;
+                }
+                if (meter.Values.TryGetValue("InstantaneousFlowRate", out var flow))
+                {
+                    t.Flow = flow.Value;
+                    t.FlowUnit = flow.Unit;
+                }
+            }
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var devices = await Api.GetGatewayDevicesAsync();
+
+            var all = new List<ScadaDemoTestApiClient.AttachedSensorDto>();
+            var deviceMap = new Dictionary<Guid, string>();
+            var batches = await Task.WhenAll(devices.Select(async d =>
+            {
+                deviceMap[d.Id] = d.Name;
+                try { return await Api.GetSensorsAsync(d.Id); }
+                catch { return new List<ScadaDemoTestApiClient.AttachedSensorDto>(); }
+            }));
+            foreach (var list in batches) all.AddRange(list);
+
+            TankList = all
+                .Where(s => ParseSensorConfig(s.Config).IsTank)
+                .Select(s =>
+                {
+                    var cfg = ParseSensorConfig(s.Config);
+                    return new TankView
+                    {
+                        SensorId = s.Id,
+                        Name = s.Name,
+                        UniqueSensorId = s.UniqueSensorId,
+                        DeviceName = deviceMap.TryGetValue(s.DeviceId, out var n) ? n : s.DeviceName,
+                        DriverKey = s.SensorTypeKey,
+                        SlaveAddress = s.SlaveAddress,
+                        Capacity = cfg.Capacity > 0 ? cfg.Capacity : 1000,
+                        LiquidType = string.IsNullOrWhiteSpace(cfg.LiquidType) ? "Water" : cfg.LiquidType,
+                        IsOnline = s.IsOnline && s.LatestTimestampUtc.HasValue,
+                        LastSeen = s.LatestTimestampUtc
+                    };
+                })
+                .OrderBy(t => t.DeviceName)
+                .ThenBy(t => t.Name)
+                .ToList();
+
+            SyncLiveValues();
+        }
+        catch
+        {
+            // API unreachable - keep the current list; the empty state or stale
+            // cards remain visible rather than the page crashing.
+        }
+        finally
+        {
+            Loading = false;
+        }
+
+        if (!_disposed) StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        State.OnChange -= HandleLiveChange;
+        if (_refreshTimer is not null)
+        {
+            await _refreshTimer.DisposeAsync();
+            _refreshTimer = null;
+        }
+    }
+}

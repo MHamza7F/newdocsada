@@ -1,0 +1,163 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using scada_demo_test.Domain.Constants
+@inject AuthenticationStateProvider AuthProvider
+
+<aside class="sidebar @(IsCollapsed ? "collapsed" : "") @(IsMobileOpen ? "mobile-open" : "")">
+    <div class="sidebar-brand">
+        <img class="brand-logo" src="/images/logo.jpg" alt="ALAM IOT logo" />
+        <div class="brand-text">
+            <div class="brand-title">ALAM IOT</div>
+            <div class="brand-sub">SCADA ENTERPRISE</div>
+        </div>
+    </div>
+
+    <nav class="sidebar-nav">
+        @foreach (var entry in VisibleNavEntries)
+        {
+            @if (entry is NavItem item)
+            {
+                <NavLink class="nav-item" href="@item.Href" Match="@item.Match" title="@item.Label">
+                    <span class="nav-icon">
+                        @GetNavIcon(item.Icon)
+                    </span>
+                    <span class="nav-label">@item.Label</span>
+                </NavLink>
+            }
+            else if (entry is NavGroup group)
+            {
+                var groupOpen = OpenGroups.Contains(group.Title);
+                <div class="nav-group">
+                    <a class="nav-item nav-group-title @(groupOpen ? "group-open" : "")" @onclick="() => ToggleGroup(group.Title)">
+                        <span class="nav-icon">
+                            @GetNavIcon(group.Icon)
+                        </span>
+                        <span class="nav-label">@group.Title</span>
+                        <span class="nav-caret" style="@(groupOpen ? "transform:rotate(90deg);" : "")">▶</span>
+                    </a>
+                    @if (groupOpen)
+                    {
+                        <div class="nav-group-children">
+                            @foreach (var child in group.Children)
+                            {
+                                <NavLink class="nav-item nav-child" href="@child.Href" Match="@child.Match" title="@child.Label">
+                                    <span class="nav-icon">
+                                        @GetNavIcon(child.Icon)
+                                    </span>
+                                    <span class="nav-label">@child.Label</span>
+                                </NavLink>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </nav>
+
+    <div class="sidebar-footer-slot">
+        <a class="nav-item logout" href="/account/logout" title="Logout">
+            <span class="nav-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                    <polyline points="16 17 21 12 16 7"/>
+                    <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+            </span>
+            <span class="nav-label">Sign Out</span>
+        </a>
+    </div>
+</aside>
+
+@if (IsMobileOpen)
+{
+    <div class="sidebar-backdrop" @onclick="OnBackdropClick"></div>
+}
+
+@code {
+    [Parameter] public bool IsCollapsed { get; set; }
+    [Parameter] public bool IsMobileOpen { get; set; }
+    [Parameter] public EventCallback OnBackdropClick { get; set; }
+
+    private record NavItem(string Href, string Label, string Icon, Microsoft.AspNetCore.Components.Routing.NavLinkMatch Match, string TabKey);
+    private record NavGroup(string Title, string Icon, string TabKey, List<NavItem> Children);
+
+    private readonly HashSet<string> OpenGroups = new() { };
+
+    private readonly List<object> AllNavEntries = new()
+    {
+        new NavItem("/dashboard", "Dashboard", "EnergyIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Energy),
+        new NavItem("/", "Live Monitoring", "MonitoringIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.All, AppTabs.Monitoring),
+        new NavItem("/summary", "Totalizer Summary", "SummaryIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Summary),
+        new NavGroup("TREND", "TrendsIcon", AppTabs.Charts, new()
+        {
+            new("/energy", "Plant Energy", "EnergyIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Energy),
+            new("/charts", "Charts & Trends", "ChartsIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Charts),
+            new("/tanks", "Storage Tanks", "TanksIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Tanks),
+        }),
+        new NavGroup(AppTabs.Devices, "DevicesIcon", AppTabs.Devices, new()
+        {
+            new("/devices", "Norvi", "DevicesIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Devices),
+            new("/gateway", "Gateway", "GatewayIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Gateway),
+        }),
+        new NavItem("/reports", "Reports & Export", "ReportsIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Reports),
+        new NavItem("/alerts", "Alerts & Events", "AlertsIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Alerts),
+        new NavItem("/multi-site", "Multi-Site Plants", "MultiSiteIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.MultiSite),
+        new NavItem("/audit-logs", "Audit Logs", "AuditLogsIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.AuditLogs),
+        new NavItem("/users", "Users & Roles", "UsersIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Users),
+    };
+
+    private List<object> VisibleNavEntries = new();
+
+    private void ToggleGroup(string key)
+    {
+        if (!OpenGroups.Remove(key))
+        {
+            OpenGroups.Add(key);
+        }
+    }
+
+    private static MarkupString GetNavIcon(string iconKey) =>
+        (iconKey, iconKey) switch
+        {
+            ("TrendsIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><path d=""M22 12h-4l-3 9L9 3l-3 9H2""/></svg>"),
+            ("EnergyIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><polygon points=""13 2 3 14 12 14 11 22 21 10 12 10 13 2""/></svg>"),
+            ("MonitoringIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><polyline points=""22 12 18 12 15 21 9 3 6 12 2 12""/></svg>"),
+            ("SummaryIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><rect x=""2"" y=""3"" width=""20"" height=""14"" rx=""2""/><line x1=""8"" y1=""21"" x2=""16"" y2=""21""/><line x1=""12"" y1=""17"" x2=""12"" y2=""21""/></svg>"),
+            ("ChartsIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><line x1=""18"" y1=""20"" x2=""18"" y2=""10""/><line x1=""12"" y1=""20"" x2=""12"" y2=""4""/><line x1=""6"" y1=""20"" x2=""6"" y2=""14""/></svg>"),
+            ("TanksIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><path d=""M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z""/></svg>"),
+            ("DevicesIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><rect x=""2"" y=""3"" width=""20"" height=""14"" rx=""2""/><line x1=""8"" y1=""21"" x2=""16"" y2=""21""/><line x1=""12"" y1=""17"" x2=""12"" y2=""21""/></svg>"),
+            ("GatewayIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><rect x=""2"" y=""2"" width=""8"" height=""8"" rx=""1""/><rect x=""14"" y=""2"" width=""8"" height=""8"" rx=""1""/><rect x=""2"" y=""14"" width=""8"" height=""8"" rx=""1""/><rect x=""14"" y=""14"" width=""8"" height=""8"" rx=""1""/><line x1=""6"" y1=""6"" x2=""6.01"" y2=""6""/><line x1=""18"" y1=""6"" x2=""18.01"" y2=""6""/><line x1=""6"" y1=""18"" x2=""6.01"" y2=""18""/><line x1=""18"" y1=""18"" x2=""18.01"" y2=""18""/></svg>"),
+            ("ReportsIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><path d=""M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z""/><polyline points=""14 2 14 8 20 8""/><line x1=""16"" y1=""13"" x2=""8"" y2=""13""/><line x1=""16"" y1=""17"" x2=""8"" y2=""17""/><polyline points=""10 9 9 9 8 9""/></svg>"),
+            ("AlertsIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><polygon points=""12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2""/></svg>"),
+            ("MultiSiteIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><path d=""M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z""/><polyline points=""9 22 9 12 15 12 15 22""/></svg>"),
+            ("FirmwareIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><polyline points=""16 16 12 12 8 16""/><line x1=""12"" y1=""12"" x2=""12"" y2=""21""/><path d=""M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4""/></svg>"),
+            ("AuditLogsIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><path d=""M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z""/><polyline points=""14 2 14 8 20 8""/><line x1=""16"" y1=""13"" x2=""8"" y2=""13""/><line x1=""16"" y1=""17"" x2=""8"" y2=""17""/><polyline points=""10 9 9 9 8 9""/></svg>"),
+            ("UsersIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><path d=""M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2""/><circle cx=""9"" cy=""7"" r=""4""/><path d=""M23 21v-2a4 4 0 0 0-3-3.87""/><path d=""M16 3.13a4 4 0 0 1 0 7.75""/></svg>"),
+            ("SettingsIcon", _) => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><circle cx=""12"" cy=""12"" r=""3""/><path d=""M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z""/></svg>"),
+            _ => new MarkupString(@"<svg width=""20"" height=""20"" viewBox=""0 0 24 24"" fill=""none"" stroke=""currentColor"" stroke-width=""2"" stroke-linecap=""round"" stroke-linejoin=""round""><circle cx=""12"" cy=""12"" r=""10""/><line x1=""12"" y1=""8"" x2=""12"" y2=""12""/><line x1=""12"" y1=""16"" x2=""12.01"" y2=""16""/></svg>"),
+        };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        var isSuper = user.HasClaim("IsSuperAdmin", "true") || user.IsInRole("SuperAdmin");
+        if (isSuper)
+        {
+            VisibleNavEntries = AllNavEntries.ToList();
+            return;
+        }
+
+        var grantedTabs = user.Claims
+            .Where(c => c.Type == "perm")
+            .Select(c => c.Value)
+            .ToHashSet();
+
+        VisibleNavEntries = AllNavEntries.Where(entry =>
+        {
+            if (entry is NavItem i) return grantedTabs.Contains(i.TabKey);
+            if (entry is NavGroup g) return grantedTabs.Contains(g.TabKey) || g.Children.Any(c => grantedTabs.Contains(c.TabKey));
+            return false;
+        }).ToList();
+    }
+}

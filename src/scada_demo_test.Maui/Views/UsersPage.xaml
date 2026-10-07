@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:scada_demo_test.Maui.ViewModels"
+             x:Class="scada_demo_test.Maui.Views.UsersPage"
+             x:DataType="vm:UsersViewModel"
+             Title="User Directory"
+             BackgroundColor="{StaticResource ScadaBgDark}">
+
+    <RefreshView IsRefreshing="{Binding IsBusy}" Command="{Binding LoadUsersCommand}">
+        <ScrollView>
+            <VerticalStackLayout Padding="16" Spacing="16">
+
+                <!-- Header Section -->
+                <Grid ColumnDefinitions="*, Auto">
+                    <VerticalStackLayout Grid.Column="0" Spacing="2">
+                        <Label Text="Operator Accounts &amp; Roles" Style="{StaticResource ScadaPageTitle}" />
+                        <Label Text="Migrated AspNetUsers with Firebase RTDB access controls" Style="{StaticResource ScadaPageSubtitle}" />
+                    </VerticalStackLayout>
+
+                    <Border Grid.Column="1"
+                            StrokeShape="RoundRectangle 8"
+                            Stroke="{StaticResource ScadaBorder}"
+                            BackgroundColor="{StaticResource ScadaBgSurface}"
+                            Padding="12,6"
+                            VerticalOptions="Center">
+                        <Label Text="{Binding TotalUsersCount, StringFormat='{0} Accounts'}"
+                               TextColor="{StaticResource ScadaCyan}"
+                               FontSize="12"
+                               FontAttributes="Bold" />
+                    </Border>
+                </Grid>
+
+                <!-- Search Input Bar -->
+                <Border StrokeShape="RoundRectangle 8"
+                        Stroke="{StaticResource ScadaBorder}"
+                        BackgroundColor="{StaticResource ScadaBgSurface}"
+                        Padding="12,2">
+                    <Grid ColumnDefinitions="Auto, *">
+                        <Label Grid.Column="0" Text="🔍" FontSize="14" VerticalOptions="Center" Margin="0,0,8,0" />
+                        <Entry Grid.Column="1"
+                               Text="{Binding SearchText}"
+                               Placeholder="Filter users by name, email or role..."
+                               PlaceholderColor="{StaticResource ScadaTextDim}"
+                               TextColor="{StaticResource ScadaTextPrimary}"
+                               ClearButtonVisibility="WhileEditing" />
+                    </Grid>
+                </Border>
+
+                <!-- Users Collection -->
+                <CollectionView ItemsSource="{Binding Users}" SelectionMode="None">
+                    <CollectionView.EmptyView>
+                        <VerticalStackLayout Padding="40" Spacing="8" HorizontalOptions="Center">
+                            <Label Text="👥" FontSize="36" HorizontalTextAlignment="Center" />
+                            <Label Text="No users found matching current filter." TextColor="{StaticResource ScadaTextMuted}" HorizontalTextAlignment="Center" />
+                        </VerticalStackLayout>
+                    </CollectionView.EmptyView>
+
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:UserDisplayModel">
+                            <Border Margin="0,0,0,10"
+                                    StrokeShape="RoundRectangle 12"
+                                    Stroke="{StaticResource ScadaBorder}"
+                                    BackgroundColor="{StaticResource ScadaBgSurface}"
+                                    Padding="14">
+                                <Grid ColumnDefinitions="Auto, *, Auto" ColumnSpacing="12">
+                                    <!-- User Avatar Circle -->
+                                    <Border Grid.Column="0"
+                                            StrokeShape="RoundRectangle 20"
+                                            Stroke="{StaticResource ScadaCyan}"
+                                            BackgroundColor="{StaticResource ScadaBgCard}"
+                                            WidthRequest="40"
+                                            HeightRequest="40"
+                                            VerticalOptions="Center">
+                                        <Label Text="👤"
+                                               FontSize="16"
+                                               HorizontalTextAlignment="Center"
+                                               VerticalTextAlignment="Center" />
+                                    </Border>
+
+                                    <!-- Name and Email -->
+                                    <VerticalStackLayout Grid.Column="1" Spacing="2" VerticalOptions="Center">
+                                        <HorizontalStackLayout Spacing="6">
+                                            <Label Text="{Binding FullName}"
+                                                   TextColor="{StaticResource ScadaTextPrimary}"
+                                                   FontSize="15"
+                                                   FontAttributes="Bold" />
+                                            <Border IsVisible="{Binding IsHardcodedSuperAdmin}"
+                                                    StrokeShape="RoundRectangle 4"
+                                                    BackgroundColor="#2D1515"
+                                                    Padding="4,1">
+                                                <Label Text="Root" TextColor="{StaticResource ScadaRose}" FontSize="9" FontAttributes="Bold" />
+                                            </Border>
+                                        </HorizontalStackLayout>
+
+                                        <Label Text="{Binding Email}"
+                                               TextColor="{StaticResource ScadaTextMuted}"
+                                               FontSize="12" />
+
+                                        <Label Text="{Binding FormattedDate, StringFormat='Created: {0}'}"
+                                               TextColor="{StaticResource ScadaTextDim}"
+                                               FontSize="10" />
+                                    </VerticalStackLayout>
+
+                                    <!-- Role Pill -->
+                                    <Border Grid.Column="2"
+                                            StrokeShape="RoundRectangle 6"
+                                            BackgroundColor="{StaticResource ScadaBgCard}"
+                                            Padding="8,4"
+                                            VerticalOptions="Center">
+                                        <Label Text="{Binding RoleName}"
+                                               TextColor="{Binding RoleBadgeColor}"
+                                               FontSize="11"
+                                               FontAttributes="Bold" />
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </RefreshView>
+</ContentPage>

@@ -1,0 +1,107 @@
+@page "/"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Tab:Monitoring")]
+@using scada_demo_test.Web.Services
+@implements IDisposable
+@inject IJSRuntime JS
+@inject LiveTelemetryState State
+@inject IConfiguration Config
+
+<div class="page-header">
+    <h1 class="page-title">Utility Monitoring &amp; Telemetry</h1>
+    <p class="page-subtitle page-subtitle-soft">Live values from every sensor added via the Gateways tab - flow, totalizer, temperature and humidity</p>
+</div>
+
+<div class="meter-grid">
+    @if (State.Meters.Count == 0)
+    {
+        <div class="glass-card" style="grid-column: 1 / -1; text-align:center; padding:3rem;">
+            <div style="font-size:2rem; margin-bottom:0.5rem;">📡</div>
+            <h3 style="color:var(--text-primary);">Waiting for Telemetry Streams</h3>
+            <p style="color:var(--text-muted); font-size:0.9rem;">
+                No sensors added yet. Open the <strong>Gateways</strong> tab, find the meters on the RS-485 bus and press
+                <strong>Configure &amp; Add</strong>/<strong>Add Sensor to Application</strong> — those sensors show here live.
+            </p>
+        </div>
+    }
+    else
+    {
+        @foreach (var s in State.Meters.Values.OrderBy(m => m.SensorName ?? m.DeviceName))
+        {
+            <div class="meter-card">
+                <div class="meter-card-header">
+                    <span class="meter-name">@(s.SensorName ?? s.DeviceName)</span>
+                    <span class="status-pill @(s.IsOnline ? "online" : "offline")">
+                        <span class="status-dot @(s.IsOnline ? "online" : "offline")"></span>
+                        @(s.IsOnline ? "ONLINE" : "OFFLINE")
+                    </span>
+                </div>
+                @foreach (var kv in s.Values)
+                {
+                    <div class="meter-reading @(kv.Key != "TemperatureC" && kv.Key != "HumidityRH" ? "secondary" : null)">
+                        <div class="meter-value">@MetricValueFormat.Display(kv.Value.Value, kv.Value.Unit)<span class="meter-unit">@kv.Value.Unit</span></div>
+                        <div class="meter-label">@MetricLabel(kv.Key)</div>
+                    </div>
+                }
+                <div class="meter-conn">
+                    <span class="meter-conn-pill @(s.IsOnline ? "online" : "offline")"></span>
+                    <div>
+                        <div class="meter-conn-line">via @s.DeviceName</div>
+                        <div class="meter-conn-seen">Last seen @s.LastSeen.ToLocalTime().ToString("HH:mm:ss")</div>
+                    </div>
+                </div>
+                <button class="btn-report" @onclick="@(() => GenerateReport(s.DeviceExternalId))">📄 View Telemetry</button>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool _disposed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.OnChange += HandleChange;
+        await State.EnsureConnectedAsync();
+    }
+
+    private static string MetricLabel(string metric)
+    {
+        return metric switch
+        {
+            "TemperatureC" => "Temperature",
+            "HumidityRH" => "Humidity",
+            "InstantaneousFlowRate" => "Flow Rate",
+            "AccumulatedTotalizer" => "Totalizer",
+            _ => metric
+        };
+    }
+
+    private void HandleChange()
+    {
+        if (_disposed) return;
+        _ = InvokeAsync(() =>
+        {
+            try
+            {
+                if (!_disposed) StateHasChanged();
+            }
+            catch { }
+        });
+    }
+
+    private async Task GenerateReport(string deviceExternalId)
+    {
+        try
+        {
+            var apiBaseUrl = (Config["ApiBaseUrl"] ?? "http://localhost:5080").TrimEnd('/');
+            await JS.InvokeVoidAsync("open", $"{apiBaseUrl}/api/reports/{deviceExternalId}/pdf", "_blank");
+        }
+        catch { }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        State.OnChange -= HandleChange;
+    }
+}

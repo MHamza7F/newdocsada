@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:scada_demo_test.Maui.ViewModels"
+             x:Class="scada_demo_test.Maui.Views.SettingsPage"
+             x:DataType="vm:SettingsViewModel"
+             Title="Configuration">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16" Spacing="20">
+            <!-- Header Section -->
+            <VerticalStackLayout Spacing="2">
+                <Label Text="System Configuration"
+                       Style="{StaticResource ScadaPageTitle}" />
+                <Label Text="Telemetry stream mode, network endpoints &amp; diagnostics"
+                       Style="{StaticResource ScadaPageSubtitle}" />
+            </VerticalStackLayout>
+
+            <!-- SECTION 1: Telemetry & Simulation Mode -->
+            <Border Style="{StaticResource ScadaCardStyle}">
+                <VerticalStackLayout Spacing="14">
+                    <Label Text="Telemetry Operation Mode"
+                           TextColor="{StaticResource ScadaTextPrimary}"
+                           FontSize="15"
+                           FontAttributes="Bold" />
+
+                    <!-- Simulation Switch -->
+                    <Grid ColumnDefinitions="*, Auto" VerticalOptions="Center">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2">
+                            <Label Text="Built-in Simulation Engine"
+                                   TextColor="{StaticResource ScadaTextPrimary}"
+                                   FontSize="13"
+                                   FontAttributes="Bold" />
+                            <Label Text="Run synthetic telemetry without physical gateway"
+                                   TextColor="{StaticResource ScadaTextMuted}"
+                                   FontSize="11" />
+                        </VerticalStackLayout>
+
+                        <Switch Grid.Column="1"
+                                IsToggled="{Binding IsSimulationMode}"
+                                OnColor="{StaticResource ScadaCyan}"
+                                ThumbColor="#FFFFFF" />
+                    </Grid>
+
+                    <BoxView HeightRequest="1" Color="#374151" />
+
+                    <!-- Auto-Failover Switch -->
+                    <Grid ColumnDefinitions="*, Auto" VerticalOptions="Center">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2">
+                            <Label Text="Auto-Failover on Connection Loss"
+                                   TextColor="{StaticResource ScadaTextPrimary}"
+                                   FontSize="13"
+                                   FontAttributes="Bold" />
+                            <Label Text="Automatically fallback to simulation if backend fails"
+                                   TextColor="{StaticResource ScadaTextMuted}"
+                                   FontSize="11" />
+                        </VerticalStackLayout>
+
+                        <Switch Grid.Column="1"
+                                IsToggled="{Binding AutoFailoverToSimulation}"
+                                OnColor="{StaticResource ScadaEmerald}"
+                                ThumbColor="#FFFFFF" />
+                    </Grid>
+
+                    <BoxView HeightRequest="1" Color="#374151" />
+
+                    <!-- Simulated Meter Count Slider -->
+                    <VerticalStackLayout Spacing="6">
+                        <Grid ColumnDefinitions="*, Auto">
+                            <Label Grid.Column="0"
+                                   Text="Simulated Flowmeter Units"
+                                   TextColor="{StaticResource ScadaTextPrimary}"
+                                   FontSize="13"
+                                   FontAttributes="Bold" />
+                            <Label Grid.Column="1"
+                                   Text="{Binding SimulatedMeterCount, StringFormat='{0} Meters'}"
+                                   TextColor="{StaticResource ScadaCyan}"
+                                   FontSize="13"
+                                   FontAttributes="Bold" />
+                        </Grid>
+
+                        <Slider Minimum="1"
+                                Maximum="14"
+                                Value="{Binding SimulatedMeterCount}"
+                                MinimumTrackColor="{StaticResource ScadaCyan}"
+                                MaximumTrackColor="#374151"
+                                ThumbColor="#FFFFFF" />
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- SECTION 2: ASP.NET Core Network Integration -->
+            <Border Style="{StaticResource ScadaCardStyle}">
+                <VerticalStackLayout Spacing="14">
+                    <Label Text="Backend API &amp; Gateway Endpoint"
+                           TextColor="{StaticResource ScadaTextPrimary}"
+                           FontSize="15"
+                           FontAttributes="Bold" />
+
+                    <!-- Base API URL Input -->
+                    <VerticalStackLayout Spacing="4">
+                        <Label Text="Backend Base URL (LAN IP or Domain)"
+                               TextColor="{StaticResource ScadaTextMuted}"
+                               FontSize="11" />
+                        <Border StrokeShape="RoundRectangle 6"
+                                BackgroundColor="#111827"
+                                Stroke="#374151"
+                                Padding="10,4">
+                            <Entry Text="{Binding ApiBaseUrl}"
+                                   TextColor="{StaticResource ScadaTextPrimary}"
+                                   Placeholder="http://192.168.1.15:5080"
+                                   PlaceholderColor="{StaticResource ScadaTextDim}"
+                                   FontSize="13" />
+                        </Border>
+                    </VerticalStackLayout>
+
+                    <!-- Polling Interval Input -->
+                    <VerticalStackLayout Spacing="4">
+                        <Label Text="Polling Refresh Interval (ms)"
+                               TextColor="{StaticResource ScadaTextMuted}"
+                               FontSize="11" />
+                        <Border StrokeShape="RoundRectangle 6"
+                                BackgroundColor="#111827"
+                                Stroke="#374151"
+                                Padding="10,4">
+                            <Entry Text="{Binding PollingIntervalMs}"
+                                   Keyboard="Numeric"
+                                   TextColor="{StaticResource ScadaTextPrimary}"
+                                   FontSize="13" />
+                        </Border>
+                    </VerticalStackLayout>
+
+                    <!-- Test Connection Button -->
+                    <Button Text="⚡ Test Backend Connection"
+                            Style="{StaticResource ScadaPrimaryBtn}"
+                            Command="{Binding TestConnectionCommand}" />
+
+                    <!-- Connection Result Box -->
+                    <Border StrokeShape="RoundRectangle 6"
+                            BackgroundColor="#111827"
+                            Stroke="#374151"
+                            Padding="12,10"
+                            IsVisible="{Binding HasTestResult}">
+                        <Label Text="{Binding ConnectionTestResult}"
+                               TextColor="{Binding TestResultColor}"
+                               FontSize="12"
+                               FontAttributes="Bold" />
+                    </Border>
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- SECTION 3: Action Reset -->
+            <Button Text="↺ Reset to Default Settings"
+                    Style="{StaticResource ScadaOutlineBtn}"
+                    Command="{Binding ResetDefaultsCommand}" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
