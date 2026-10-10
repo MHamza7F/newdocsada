@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using scada_demo_test.Domain.Constants;
 using scada_demo_test.Application.Interfaces;
 using scada_demo_test.Domain.Interfaces;
 using QuestPDF.Fluent;
@@ -9,6 +11,7 @@ namespace scada_demo_test.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Policy = $"Action:{AppPermissions.ReportsView}")]
 public class ReportsController : ControllerBase
 {
     private readonly IDeviceRepository _devices;
@@ -42,6 +45,7 @@ public class ReportsController : ControllerBase
     // GET /api/reports/fm-water-01/range-pdf?metric=FlowRate&from=...&to=...
     // Same custom date-range data as /history, rendered as a downloadable PDF.
     [HttpGet("{externalId}/range-pdf")]
+    [Authorize(Policy = $"Action:{AppPermissions.ReportsExportPdf}")]
     public async Task<IActionResult> GenerateRangeReport(string externalId, [FromQuery] string metric, [FromQuery] DateTime from, [FromQuery] DateTime to)
     {
         if (to <= from) return BadRequest("'to' must be after 'from'.");
@@ -133,6 +137,7 @@ public class ReportsController : ControllerBase
     // GET /api/reports/fm-water-01 or GET /api/reports/fm-water-01/pdf -> downloads a PDF summary for that meter
     [HttpGet("{externalId}")]
     [HttpGet("{externalId}/pdf")]
+    [Authorize(Policy = $"Action:{AppPermissions.ReportsExportPdf}")]
     public async Task<IActionResult> GenerateReport(string externalId)
     {
         var device = await _devices.GetByExternalIdAsync(externalId);
@@ -214,6 +219,7 @@ public class ReportsController : ControllerBase
     }
 
     [HttpGet("{externalId}/export-csv")]
+    [Authorize(Policy = $"Action:{AppPermissions.ReportsExportExcel}")]
     public async Task<IActionResult> ExportHistoryCsv(string externalId, [FromQuery] string metric, [FromQuery] DateTime from, [FromQuery] DateTime to)
     {
         if (to <= from) return BadRequest("'to' must be after 'from'.");
@@ -237,4 +243,3 @@ public class ReportsController : ControllerBase
         return File(System.Text.Encoding.UTF8.GetBytes(sb.ToString()), "text/csv", $"{device.ExternalId}_{metric}_{from:yyyyMMdd}_{to:yyyyMMdd}.csv");
     }
 }
-

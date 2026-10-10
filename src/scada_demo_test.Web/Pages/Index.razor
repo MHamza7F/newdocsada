@@ -27,7 +27,7 @@
     {
         @foreach (var s in State.Meters.Values.OrderBy(m => m.SensorName ?? m.DeviceName))
         {
-            <div class="meter-card">
+            <div class="meter-card connection-card @(s.IsOnline ? "is-online" : "is-offline")">
                 <div class="meter-card-header">
                     <span class="meter-name">@(s.SensorName ?? s.DeviceName)</span>
                     <span class="status-pill @(s.IsOnline ? "online" : "offline")">

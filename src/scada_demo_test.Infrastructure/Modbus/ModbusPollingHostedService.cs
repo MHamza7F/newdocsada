@@ -23,14 +23,14 @@ namespace scada_demo_test.Infrastructure.Modbus;
 // due tick.
 public class ModbusPollingHostedService : BackgroundService
 {
-    private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan CycleDelay = TimeSpan.FromMilliseconds(200);
 
     // After a gateway connect failure we stop hammering the network for a while.
     private static readonly TimeSpan GatewayBackoff = TimeSpan.FromSeconds(30);
 
     // RS-485 half-duplex turn-around delay between two DIFFERENT register blocks of
-    // the same sensor (the driver library's own InterReadDelayMs is 50).
-    private const int InterWindowDelayMs = 60;
+    // the same sensor (reduced from 60ms for faster polling).
+    private const int InterWindowDelayMs = 10;
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ModbusPollingHostedService> _logger;
@@ -47,6 +47,8 @@ public class ModbusPollingHostedService : BackgroundService
     // declared offline after this many failures in a row.
     private const int ZeroSensorOfflineThreshold = 3;
     private readonly Dictionary<Guid, int> _zeroSensorProbeFailures = new();
+    private readonly Dictionary<Guid, DateTime> _lastProbeUtc = new();
+    private static readonly TimeSpan ZeroSensorProbeInterval = TimeSpan.FromSeconds(10);
 
     // Consecutive failed telemetry READS per sensor: a lone read blip (WiFi jitter on
     // the serial bridge) must not DC the sensor; it is only declared offline after this
@@ -126,6 +128,7 @@ public class ModbusPollingHostedService : BackgroundService
 
         foreach (var device in devices)
         {
+            ct.ThrowIfCancellationRequested();
             if (ModbusScanCoordinator.IsScanning(device.Id))
             {
                 // Yield the physical Modbus TCP socket completely while the operator is scanning the bus.
@@ -144,8 +147,13 @@ public class ModbusPollingHostedService : BackgroundService
             var timeout = ComputeWatchdogTimeout(activeSensors);
             var lastSeenFresh = device.LastSeenAt.HasValue &&
                 (DateTime.UtcNow - device.LastSeenAt.Value) <= timeout;
+            var isPolledGateway = !string.IsNullOrWhiteSpace(device.IpAddress) &&
+                device.HardwareType != DeviceHardwareType.NorviESP32;
 
-            if (device.IsOnline && !lastSeenFresh)
+            // Push-only devices have no reachability probe. For TCP gateways, try
+            // the current poll first: a long scan or paused worker makes LastSeenAt
+            // stale without proving the gateway is offline.
+            if (!isPolledGateway && device.IsOnline && !lastSeenFresh)
             {
                 _logger.LogInformation("Device '{Device}' ({DeviceId}) went offline: no data for {Elapsed}.",
                     device.Name, device.Id, DateTime.UtcNow - (device.LastSeenAt ?? DateTime.UtcNow));
@@ -174,7 +182,8 @@ public class ModbusPollingHostedService : BackgroundService
                 continue;
             }
 
-            using var busLease = await ModbusScanCoordinator.AcquireBusAsync(device.IpAddress, device.Port, ct);
+            using var busLease = ModbusScanCoordinator.TryAcquireBus(device.IpAddress, device.Port);
+            if (busLease is null) continue;
             if (ModbusScanCoordinator.IsScanning(device.Id)) continue;
 
             var dueSensors = activeSensors.Where(IsDue).ToList();
@@ -201,6 +210,11 @@ public class ModbusPollingHostedService : BackgroundService
                 // the USR-W610 serial bridge every second with TCP churn) and refresh
                 // LastSeenAt so the watchdog never kills a reachable gateway.
                 var now = DateTime.UtcNow;
+                if (_lastProbeUtc.TryGetValue(device.Id, out var lastProbe) &&
+                    now - lastProbe < ZeroSensorProbeInterval)
+                {
+                    continue;
+                }
                 var seenStale = device.LastSeenAt == null || (now - device.LastSeenAt.Value).TotalSeconds >= 10;
                 if (device.IsOnline && !seenStale)
                 {
@@ -209,6 +223,7 @@ public class ModbusPollingHostedService : BackgroundService
 
                 try
                 {
+                    _lastProbeUtc[device.Id] = now;
                     using var probe = await _master.OpenAsync(device.IpAddress, device.Port, device.TimeoutMs, ct);
                     _zeroSensorProbeFailures[device.Id] = 0;
                     device.IsOnline = true;
@@ -216,7 +231,7 @@ public class ModbusPollingHostedService : BackgroundService
                     device.LastSeenAt = now;
                     await deviceRepo.UpdateAsync(device, ct);
                 }
-                catch
+                catch (Exception) when (!ct.IsCancellationRequested)
                 {
                     // Only declare OFFLINE after consecutive failures - a lone probe
                     // can drop (WiFi jitter) without the gateway actually being down.
@@ -366,7 +381,7 @@ public class ModbusPollingHostedService : BackgroundService
                     _lastPollUtc[sensor.Id] = DateTime.UtcNow;
                     _lastOnlineState[sensor.Id] = true;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (!ct.IsCancellationRequested)
                 {
                     _logger.LogDebug(ex, "Sensor '{Sensor}' on '{Device}' poll failed: {Message}",
                         sensor.Name, device.Name, ex.Message);
@@ -419,7 +434,7 @@ public class ModbusPollingHostedService : BackgroundService
             // else: unreachable but data still fresh -> keep the current state; the
             // watchdog flips it offline only once the data actually goes stale.
             }
-            catch (Exception deviceEx)
+            catch (Exception deviceEx) when (!ct.IsCancellationRequested)
             {
                 // One bad gateway (DB hiccup etc.) must never stall the other gateways
                 // in this cycle or crash anything: log and move on; the outer worker
@@ -558,7 +573,7 @@ public class ModbusPollingHostedService : BackgroundService
             onConnected();
             return await ReadWindowAsync(session, slave, window, budgetMs, ct);
         }
-        catch when (firstSw.ElapsedMilliseconds < budgetMs / 2)
+        catch when (!ct.IsCancellationRequested && firstSw.ElapsedMilliseconds < budgetMs / 2)
         {
             using var retry = await _master.OpenAsync(device.IpAddress!, device.Port, budgetMs, ct);
             onConnected();

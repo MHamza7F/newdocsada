@@ -21,6 +21,7 @@ public static class DynamicSchemaInitializer
         var db = services.GetRequiredService<MyDbContextDxy>();
         if (db.Database.IsSqlite())
         {
+            await EnsureSqliteSchemaAsync(db, services, ct);
             return;
         }
         var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(DynamicSchemaInitializer));
@@ -38,6 +39,15 @@ public static class DynamicSchemaInitializer
             """IF COL_LENGTH(N'Devices', N'TimeoutMs') IS NULL ALTER TABLE [Devices] ADD [TimeoutMs] int NOT NULL DEFAULT 2000;""",
             """IF COL_LENGTH(N'Devices', N'MaxSensorCapacity') IS NULL ALTER TABLE [Devices] ADD [MaxSensorCapacity] int NOT NULL DEFAULT 25;""",
             """IF COL_LENGTH(N'Devices', N'IsOnline') IS NULL ALTER TABLE [Devices] ADD [IsOnline] bit NOT NULL DEFAULT 0;""",
+            // ProvisionedVia: which management tab registered the device ("Norvi"/"Gateway").
+            // One-time backfill derives the origin from the hardware class.
+            """
+            IF COL_LENGTH(N'Devices', N'ProvisionedVia') IS NULL
+            BEGIN
+                ALTER TABLE [Devices] ADD [ProvisionedVia] nvarchar(64) NOT NULL DEFAULT N'Gateway';
+                UPDATE [Devices] SET [ProvisionedVia] = CASE WHEN [HardwareType] = 0 THEN N'Norvi' ELSE N'Gateway' END;
+            END;
+            """,
             // Existing devices become "not yet confirmed" until the poller says otherwise.
             """UPDATE [Devices] SET [Status] = 1 WHERE [Status] IS NULL;""",
 
@@ -98,5 +108,48 @@ public static class DynamicSchemaInitializer
         }
 
         await db.Database.CloseConnectionAsync();
+    }
+
+    // SQLite dialect of the same additive-only upgrade path. EnsureCreated only
+    // builds the schema on a FRESH database, so an existing scada_db_iiot.sqlite
+    // must get new columns via guarded ALTER TABLE here or every EF query that
+    // projects the new property fails with "no such column".
+    private static async Task EnsureSqliteSchemaAsync(MyDbContextDxy db, IServiceProvider services, CancellationToken ct)
+    {
+        var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(DynamicSchemaInitializer));
+
+        await db.Database.OpenConnectionAsync(ct);
+        try
+        {
+            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var cmd = db.Database.GetDbConnection().CreateCommand();
+            cmd.CommandText = "PRAGMA table_info('Devices');";
+            using (var reader = await cmd.ExecuteReaderAsync(ct))
+            {
+                while (await reader.ReadAsync(ct))
+                {
+                    columns.Add(reader.GetString(1)); // column-name ordinal
+                }
+            }
+
+            if (!columns.Contains("ProvisionedVia"))
+            {
+                // SQLite ALTER TABLE requires a constant default; backfill the real
+                // origin from the hardware type (0 = NorviESP32, 1 = UsrW610).
+                await db.Database.ExecuteSqlRawAsync(
+                    "ALTER TABLE Devices ADD COLUMN ProvisionedVia TEXT NOT NULL DEFAULT 'Gateway';", ct);
+                await db.Database.ExecuteSqlRawAsync(
+                    "UPDATE Devices SET ProvisionedVia = CASE WHEN HardwareType = 0 THEN 'Norvi' ELSE 'Gateway' END;", ct);
+                logger.LogInformation("SQLite schema upgrade: added Devices.ProvisionedVia with hardware-based backfill.");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "SQLite schema statement failed (continuing anyway).");
+        }
+        finally
+        {
+            await db.Database.CloseConnectionAsync();
+        }
     }
 }

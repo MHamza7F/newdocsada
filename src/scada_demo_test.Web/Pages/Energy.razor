@@ -10,6 +10,11 @@
     <p class="page-subtitle page-subtitle-soft">Everything on one page: gateways, every sensor's live values, totalizers and active alerts - all real data, no simulation</p>
 </div>
 
+@if (LoadError is not null)
+{
+    <div class="report-error-box"><span>⚠️ @LoadError</span><button class="btn-sm-action-ack" @onclick="RefreshAsync">Retry</button></div>
+}
+
 @if (Loading)
 {
     <div class="glass-card" style="padding:2.5rem;text-align:center;color:var(--text-muted);">Loading dashboard&hellip;</div>
@@ -74,7 +79,7 @@ else
         <div class="dash-gateways">
             @foreach (var g in Gateways)
             {
-                <div class="dash-gw">
+                <div class="dash-gw connection-card @(g.IsOnline ? "is-online" : "is-offline")">
                     <div class="dash-gw-main">
                         <span class="dash-gw-name">@g.Name</span>
                         <span class="eg-tag">@g.ExternalId</span>
@@ -117,7 +122,7 @@ else
         <div class="eg-groups">
             @foreach (var c in Cards)
             {
-                <section class="eg-group">
+                    <section class="eg-group connection-card @(c.IsOnline ? "is-online" : "is-offline")">
                     <div class="eg-head">
                         <div class="eg-title">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -247,6 +252,7 @@ else
     private List<ScadaDemoTestApiClient.AlertIncidentDto> Incidents = new();
     private bool Loading = true;
     private bool Refreshing;
+    private string? LoadError;
     private bool _disposed;
     private System.Threading.Timer? _refreshTimer;
     private string Clock = DateTime.Now.ToString("HH:mm:ss");
@@ -485,6 +491,7 @@ else
     private async Task RefreshAsync()
     {
         Refreshing = true;
+        LoadError = null;
         try
         {
             Gateways = await Api.GetGatewayDevicesAsync();
@@ -494,8 +501,7 @@ else
             var batches = await Task.WhenAll(Gateways.Select(async d =>
             {
                 deviceMap[d.Id] = d.Name;
-                try { return await Api.GetSensorsAsync(d.Id); }
-                catch { return new List<ScadaDemoTestApiClient.AttachedSensorDto>(); }
+                return await Api.GetSensorsAsync(d.Id);
             }));
             foreach (var list in batches) all.AddRange(list);
 
@@ -537,13 +543,13 @@ else
 
             Cards = next;
         }
-        catch
+        catch (Exception ex)
         {
-            // API unreachable - keep the current list rather than crashing.
+            LoadError = $"Unable to load energy sensors: {ex.Message}";
         }
 
         try { Incidents = await Api.GetAlertIncidentsAsync(limit: 15); }
-        catch { /* keep current list */ }
+        catch (Exception ex) { LoadError ??= $"Unable to load alert incidents: {ex.Message}"; }
 
         SyncLiveValues();
         Loading = false;

@@ -4,45 +4,46 @@
    ========================================================================== */
 
 :root {
-  --sidebar-w: 262px;
+  --sidebar-w: 248px;
   --sidebar-w-collapsed: 72px;
   --topbar-h: 64px;
   --footer-h: 42px;
 
   /* ---- Core Light Palette ---- */
-  --bg-body: #f8fafc;
+  --bg-body: #f5f7f6;
   --bg-surface: #ffffff;
   --bg-card: #ffffff;
-  --bg-card-hover: #f1f5f9;
-  --bg-card-subtle: #f8fafc;
+  --bg-card-hover: #eef4f3;
+  --bg-card-subtle: #fbfcfc;
 
-  --border-color: #e2e8f0;
-  --border-subtle: #f1f5f9;
-  --border-strong: #cbd5e1;
-  --border-focus: #0284c7;
+  --border-color: #dfe7e8;
+  --border-subtle: #eef3f2;
+  --border-strong: #cbd8da;
+  --border-focus: #087f82;
   --border: var(--border-color);
-  --text-primary: #0f172a;
+  --text-primary: #101b23;
 
   /* ---- Brand & Industrial Accents ---- */
-  --primary-blue: #0284c7;
-  --primary-blue-hover: #0369a1;
-  --primary-blue-light: #e0f2fe;
-  --primary-glow: rgba(2, 132, 199, 0.15);
+  --primary-blue: #087f82;
+  --primary-blue-hover: #066467;
+  --primary-blue-light: #e2f2f1;
+  --primary-glow: rgba(8, 127, 130, 0.15);
+  --scrim: rgba(11, 28, 45, 0.56);
 
-  --accent-emerald: #059669;
-  --accent-emerald-light: #d1fae5;
-  --accent-amber: #d97706;
-  --accent-amber-light: #fef3c7;
-  --accent-rose: #dc2626;
-  --accent-rose-light: #fee2e2;
+  --accent-emerald: #20865d;
+  --accent-emerald-light: #e6f4ed;
+  --accent-amber: #a86b14;
+  --accent-amber-light: #fff2dc;
+  --accent-rose: #bf4b4b;
+  --accent-rose-light: #fbe8e8;
   --accent-indigo: #4f46e5;
   --accent-indigo-light: #e0e7ff;
 
   /* ---- Typography Hierarchy ---- */
-  --text-main: #0f172a;
-  --text-body: #334155;
-  --text-muted: #64748b;
-  --text-light: #94a3b8;
+  --text-main: #101b23;
+  --text-body: #172731;
+  --text-muted: #697b88;
+  --text-light: #8b9aa4;
 
   /* ---- Shadows & Glass ---- */
   --shadow-xs: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
@@ -51,10 +52,10 @@
   --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
   --shadow-dropdown: 0 12px 28px rgba(15, 23, 42, 0.12), 0 4px 10px rgba(15, 23, 42, 0.06);
 
-  --radius-sm: 6px;
+  --radius-sm: 7px;
   --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 18px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
 }
 
 /* ---------- Global Reset & Body ---------- */
@@ -92,7 +93,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
   display: flex;
   flex-direction: column;
   margin-left: var(--sidebar-w);
-  transition: margin-left 0.15s ease-out;
+  transition: margin-left 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   background-color: var(--bg-body);
 }
 
@@ -195,6 +196,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 
 .sidebar-brand {
   height: var(--topbar-h);
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   padding: 0 16px;
@@ -244,11 +246,14 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 
 .sidebar-nav {
   flex: 1;
+  min-height: 0;
   padding: 16px 10px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 .nav-item {
@@ -307,11 +312,12 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 
 .nav-item.group-open .nav-caret { transform: rotate(90deg); }
 
-.nav-group-title { font-weight: 600; cursor: pointer; }
+.nav-group-title { width: 100%; text-align: left; line-height: inherit; font-weight: 600; cursor: pointer; }
 
 .sidebar.collapsed .nav-label { display: none; }
 
 .sidebar-footer-slot {
+  flex-shrink: 0;
   padding: 12px 10px;
   border-top: 1px solid var(--border-color);
 }
@@ -561,8 +567,10 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 
 .user-menu:hover {
-  background: #f1f5f9;
+  background: var(--bg-card-hover);
 }
+
+.user-menu-trigger { display: flex; align-items: center; gap: 10px; color: inherit; text-align: left; border-radius: var(--radius-sm); }
 
 .avatar {
   width: 34px;
@@ -692,7 +700,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 
 .status-pill.offline {
-  background: #f1f5f9;
+  background: var(--bg-card-hover);
   color: var(--text-muted);
 }
 
@@ -806,7 +814,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 .btn-report {
   margin-top: 2px;
   padding: 8px 14px;
-  background: #f8fafc;
+  background: var(--bg-card-subtle);
   color: var(--text-body);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -864,7 +872,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 
 .scada-table thead, .data-table thead {
-  background: #f8fafc;
+  background: var(--bg-card-subtle);
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -885,7 +893,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 
 .scada-table tbody tr:hover, .data-table tbody tr:hover {
-  background: #f8fafc;
+  background: var(--bg-card-subtle);
 }
 
 .scada-table tbody tr:last-child td, .data-table tbody tr:last-child td {
@@ -914,14 +922,14 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 .btn-icon-action {
   padding: 6px 10px;
   border-radius: var(--radius-sm);
-  background: #f1f5f9;
+  background: var(--bg-card-hover);
   border: 1px solid var(--border-color);
   transition: all 0.15s ease;
   font-size: 14px;
 }
 
 .btn-icon-action:hover {
-  background: #e2e8f0;
+  background: var(--border-color);
 }
 
 .btn-icon-action.delete:hover {
@@ -931,7 +939,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 
 .btn-sm-report {
   padding: 6px 14px;
-  background: #f8fafc;
+  background: var(--bg-card-subtle);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   font-size: 12.5px;
@@ -993,7 +1001,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 
 .btn-secondary-scada {
-  background: #f1f5f9;
+  background: var(--bg-card-hover);
   color: var(--text-body);
   border: 1px solid var(--border-color);
   font-weight: 600;
@@ -1004,7 +1012,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 
 .btn-secondary-scada:hover {
-  background: #e2e8f0;
+  background: var(--border-color);
 }
 
 /* ==========================================================================
@@ -1012,7 +1020,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
    ========================================================================== */
 .tab-switcher {
   display: flex;
-  background: #f1f5f9;
+  background: var(--bg-card-hover);
   padding: 4px;
   border-radius: var(--radius-md);
   gap: 4px;
@@ -1244,7 +1252,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 
 .tank-visual-cylinder {
   height: 180px;
-  background: #f1f5f9;
+  background: var(--bg-card-hover);
   border: 2px solid var(--border-strong);
   border-radius: 24px;
   position: relative;
@@ -1357,7 +1365,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 
 .comp-stat-card {
-  background: #f8fafc;
+  background: var(--bg-card-subtle);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   padding: 18px;
@@ -1551,7 +1559,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  background: #f8fafc;
+  background: var(--bg-card-subtle);
   padding: 12px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
@@ -2033,7 +2041,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 
 .offline-sim-box {
   padding: 18px 22px;
-  background: #f8fafc;
+  background: var(--bg-card-subtle);
   border-radius: var(--radius-md);
   margin: 16px;
   border: 1px solid var(--border-color);
@@ -2060,7 +2068,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 
 .sec-card {
-  background: #f8fafc;
+  background: var(--bg-card-subtle);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   padding: 18px;
@@ -2267,7 +2275,35 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 /* ==========================================================================
    MOBILE & RESPONSIVE BREAKPOINTS
    ========================================================================== */
+.sidebar-mobile-toggle, .sidebar-mobile-close, .sidebar-backdrop { display: none; }
+
+/* Keep every icon on the same centerline, including nested routes and branding. */
+@media (min-width: 769px) {
+  .sidebar.collapsed .sidebar-brand { padding: 0; justify-content: center; gap: 0; }
+  .sidebar.collapsed .nav-item { justify-content: center; padding: 10px 0; gap: 0; }
+  .sidebar.collapsed .nav-caret { display: none; }
+  .sidebar.collapsed .nav-group-children { margin-left: 0; padding-left: 0; border-left: 0; }
+  .sidebar.collapsed .nav-group-children .nav-item { border-radius: var(--radius-sm); }
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 3px;
+}
+.sidebar .nav-item:focus-visible { outline-offset: -2px; }
+.nav-icon { flex-shrink: 0; }
+.nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.page-title { line-height: 1.25; }
+.app-footer { flex-shrink: 0; padding: 8px 16px; min-height: var(--footer-h); height: auto; text-align: center; }
+.skip-link { position: fixed; top: 8px; left: 8px; z-index: 1300; padding: 10px 16px; background: var(--bg-surface); color: var(--primary-blue); border-radius: var(--radius-sm); transform: translateY(-150%); }
+.skip-link:focus { transform: translateY(0); }
+.topbar-left { min-width: 0; }
+.topbar-right { flex-shrink: 0; }
+.search-box, .search-box:focus-within { width: clamp(160px, 24vw, 300px); }
+
 @media (max-width: 1024px) {
+  .topbar-clock { display: none; }
+  .topbar .user-info { display: none; }
   .app-content {
     padding: 20px 16px;
   }
@@ -2280,14 +2316,24 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 
 @media (max-width: 768px) {
-  .sidebar {
+  .sidebar, .sidebar.collapsed {
+    width: min(var(--sidebar-w), calc(100vw - 32px));
     transform: translateX(-100%);
+    visibility: hidden;
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
   }
   .sidebar.mobile-open {
     transform: translateX(0);
+    visibility: visible;
   }
+  .sidebar.collapsed .brand-text { display: flex; }
+  .sidebar.collapsed .nav-label { display: inline; }
+  .sidebar-desktop-toggle { display: none; }
+  .sidebar-mobile-toggle, .sidebar-mobile-close { display: inline-flex; }
+  .sidebar-mobile-close { margin-left: auto; padding: 4px 8px; }
+  .sidebar-brand { padding: 0 10px; gap: 6px; }
   .sidebar-backdrop {
+    display: block;
     position: fixed;
     inset: 0;
     background: rgba(15, 23, 42, 0.4);
@@ -2297,14 +2343,17 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
     margin-left: 0 !important;
   }
   .topbar {
-    padding: 0 16px;
+    padding: 0 12px;
+    gap: 8px;
   }
-  .search-box {
-    width: 180px;
-  }
-  .search-box:focus-within {
-    width: 220px;
-  }
+  .topbar-left { flex: 1; gap: 8px; }
+  .topbar-right { gap: 6px; }
+  .search-box-wrapper { flex: 1; min-width: 0; }
+  .search-box, .search-box:focus-within { width: 100%; padding: 7px 10px; }
+  .search-box input { min-width: 0; }
+  .search-dropdown-menu, .alerts-dropdown { position: fixed; top: calc(var(--topbar-h) + 4px); left: 12px; right: 12px; width: auto; max-height: calc(100dvh - var(--topbar-h) - 24px); }
+  .topbar .user-menu { padding: 4px; gap: 4px; }
+  .topbar .chevron { display: none; }
   .topbar-clock {
     display: none;
   }
@@ -2318,6 +2367,10 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
     max-width: 160px;
     margin: 0 auto;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar, .app-main, .nav-item, .nav-caret { transition: none; }
 }
 
 /* ---- Device Card Status Animation ---- */
@@ -2677,7 +2730,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 
 .level-chip.off {
-  background: #f1f5f9;
+  background: var(--bg-card-hover);
   color: var(--text-muted);
 }
 
@@ -3286,37 +3339,38 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
    ========================================================================== */
 html[data-theme="dark"],
 body.dark-theme {
-  --bg-body: #0b1120;
-  --bg-surface: #0f172a;
-  --bg-card: #111c2e;
-  --bg-card-hover: #16223a;
-  --bg-card-subtle: #0e1626;
+  --bg-body: #101b23;
+  --bg-surface: #172731;
+  --bg-card: #172731;
+  --bg-card-hover: #1c3039;
+  --bg-card-subtle: #152831;
 
-  --border-color: #1e2d44;
-  --border-subtle: #16223a;
-  --border-strong: #2a3d58;
-  --border-focus: #38bdf8;
+  --border-color: #2c414b;
+  --border-subtle: #213741;
+  --border-strong: #3d5963;
+  --border-focus: #73d4d0;
   --border: var(--border-color);
-  --text-primary: #e2e8f0;
+  --text-primary: #e6f0f2;
 
-  --primary-blue: #38bdf8;
-  --primary-blue-hover: #0ea5e9;
-  --primary-blue-light: #0c2a43;
-  --primary-glow: rgba(56, 189, 248, 0.18);
+  --primary-blue: #73d4d0;
+  --primary-blue-hover: #9be5e1;
+  --primary-blue-light: #173f42;
+  --primary-glow: rgba(115, 212, 208, 0.18);
+  --scrim: rgba(0, 0, 0, 0.64);
 
-  --accent-emerald: #34d399;
-  --accent-emerald-light: #064e3b;
-  --accent-amber: #fbbf24;
-  --accent-amber-light: #422006;
-  --accent-rose: #fb7185;
-  --accent-rose-light: #4c0519;
+  --accent-emerald: #63d39b;
+  --accent-emerald-light: #183a31;
+  --accent-amber: #efbb63;
+  --accent-amber-light: #46351c;
+  --accent-rose: #ff8585;
+  --accent-rose-light: #482829;
   --accent-indigo: #818cf8;
   --accent-indigo-light: #1e1b4b;
 
-  --text-main: #e2e8f0;
-  --text-body: #cbd5e1;
-  --text-muted: #94a3b8;
-  --text-light: #64748b;
+  --text-main: #e6f0f2;
+  --text-body: #c5d9de;
+  --text-muted: #a2b5bd;
+  --text-light: #8298a2;
 
   --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 1px 2px -1px rgba(0, 0, 0, 0.4);
@@ -3528,3 +3582,177 @@ body.dark-theme .alert-row-active {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ============================================================================
+   Industrial reference finish
+   The selectors below are intentionally component-level so existing page
+   markup, charts, alarms, and responsive sidebar behavior remain intact.
+   ============================================================================ */
+:root {
+  --industrial-navy: #0b1c2d;
+  --industrial-teal: #087f82;
+  --industrial-teal-dark: #066467;
+  --industrial-offwhite: #f5f7f6;
+  --industrial-panel: #ffffff;
+  --industrial-ink: #101b23;
+}
+
+html, body { background: var(--bg-body); }
+body { color: var(--text-main); }
+.sidebar, .sidebar-brand { background: var(--industrial-navy); border-color: rgba(210, 231, 235, .14); }
+.sidebar-brand { color: #c6d5dd; }
+.sidebar-brand .brand-title { color: #fff; }
+.sidebar-brand .brand-sub { color: #94e4df; }
+.brand-mark, .sidebar-brand .brand-logo { border-color: rgba(108, 211, 207, .4); background: rgba(21, 130, 132, .2); }
+.sidebar .nav-item { color: #9fb2bc; }
+.sidebar .nav-item:hover, .sidebar .nav-item.active { color: #e7fbfa; background: rgba(40, 166, 164, .14); }
+.sidebar .nav-item.active { box-shadow: inset 3px 0 var(--industrial-teal); }
+.sidebar-footer-slot { border-color: rgba(210, 231, 235, .12); }
+.app-main, .app-shell { background: var(--bg-body); }
+.topbar { background: color-mix(in srgb, var(--bg-surface) 94%, transparent); border-color: var(--border-color); }
+.app-footer { background: var(--bg-surface); border-color: var(--border-color); }
+.glass-card, .meter-card, .stat-card, .overview-stat, .comparison-chart-box, .site-card,
+.content-panel, .modal-card { border-radius: var(--radius-md); box-shadow: var(--shadow-sm); }
+.btn-primary-scada, .btn-sm-action-ack { background: var(--industrial-teal); }
+.btn-primary-scada:hover, .btn-sm-action-ack:hover { background: var(--industrial-teal-dark); }
+.btn-secondary-scada, .btn-report, .btn-sm-report, .btn-icon-action, .pg-btn { border-color: var(--border-strong); }
+.search-box, .custom-input, .custom-select { border-color: var(--border-strong); }
+.search-box:focus-within, .custom-input:focus, .custom-select:focus { border-color: var(--industrial-teal); box-shadow: 0 0 0 3px rgba(8, 127, 130, .13); }
+.scada-table thead, .data-table thead { background: var(--bg-card-subtle); }
+.scada-table th, .data-table th { color: var(--text-body); border-color: var(--border-color); }
+.scada-table td, .data-table td { border-color: var(--border-color); }
+.modal-overlay { background: rgba(11, 28, 45, .56); }
+.modal-header, .modal-footer { border-color: var(--border-color); }
+.modal-footer { background: var(--bg-card-subtle); }
+
+/* Follow the OS when there is no explicit user choice. */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg-body: #101b23; --bg-surface: #172731; --bg-card: #172731; --bg-card-hover: #1c3039; --bg-card-subtle: #152831;
+    --border-color: #2c414b; --border-subtle: #213741; --border-strong: #3d5963; --border-focus: #73d4d0;
+    --text-primary: #e6f0f2; --text-main: #e6f0f2; --text-body: #c5d9de; --text-muted: #a2b5bd; --text-light: #8298a2;
+    --primary-blue: #73d4d0; --primary-blue-hover: #9be5e1; --primary-blue-light: #173f42; --primary-glow: rgba(115, 212, 208, .18);
+    --accent-emerald: #63d39b; --accent-emerald-light: #183a31; --accent-amber: #efbb63; --accent-amber-light: #46351c;
+    --accent-rose: #ff8585; --accent-rose-light: #482829;
+    --shadow-xs: 0 1px 2px rgba(0,0,0,.35); --shadow-sm: 0 2px 8px rgba(0,0,0,.24); --shadow-md: 0 5px 16px rgba(0,0,0,.28);
+  }
+}
+
+/* Later legacy dark selectors used blue surfaces; keep industrial surfaces
+   consistent while preserving semantic alarm colors and SVG/canvas colors. */
+html[data-theme="dark"] .topbar, html[data-theme="dark"] .app-footer,
+body.dark-theme .topbar, body.dark-theme .app-footer { background: var(--bg-surface); border-color: var(--border-color); }
+html[data-theme="dark"] .icon-btn, body.dark-theme .icon-btn { background: var(--bg-card-subtle); border-color: var(--border-color); color: var(--text-main); }
+html[data-theme="dark"] .custom-input, html[data-theme="dark"] .custom-select,
+body.dark-theme .custom-input, body.dark-theme .custom-select { background: var(--bg-card-subtle); color: var(--text-main); border-color: var(--border-strong); }
+
+/* Content surfaces and controls use the reference theme in both modes. */
+.table-card, .chart-card, .comparison-wrapper, .report-builder-card,
+.role-permission-box, .login-card, .tk-card, .pe-wrap {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+}
+.table-responsive, .comparison-chart-box, .chart-badge, .version-tag,
+.latency-pill, .btn-report, .btn-sm-report, .btn-icon-action, .pg-btn,
+.tab-switcher, .chip, .custom-input, .custom-select {
+  background: var(--bg-card-subtle);
+  border-color: var(--border-strong);
+  color: var(--text-main);
+}
+.scada-table thead, .data-table thead, .pagination-bar, .modal-footer,
+.card-footer, .site-metrics-mini, .comp-stat-card, .sec-card,
+.offline-sim-box, .pe-kpi { background: var(--bg-card-subtle); }
+.scada-table tbody tr:hover, .data-table tbody tr:hover,
+.btn-secondary-scada:hover, .btn-report:hover, .btn-sm-report:hover,
+.btn-icon-action:hover, .pg-btn:hover:not(:disabled), .chip:hover {
+  background: var(--bg-card-hover);
+}
+.modal-overlay { background: var(--scrim, rgba(11, 28, 45, .56)); }
+.modal-card, .modal-header, .modal-footer { border-color: var(--border-color); }
+.modal-card { color: var(--text-main); }
+.custom-input:focus, .custom-select:focus, .search-box:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+.tank-toggle-box { background: var(--primary-blue-light); }
+
+/* Keep the isolated Infrastructure page aligned with the same surface tokens. */
+.infrastructure-page .infra-panel,
+.infrastructure-page .infra-metric,
+.infrastructure-page .gateway-card,
+.infrastructure-page .sensor-card,
+.infrastructure-page .gateway-summary,
+.infrastructure-page .infra-modal {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+  color: var(--text-main);
+}
+.infrastructure-page .infra-toolbar input,
+.infrastructure-page .infra-toolbar select,
+.infrastructure-page .sensor-card.offline,
+.infrastructure-page .offline-note,
+.infrastructure-page .history-table thead {
+  background: var(--bg-card-subtle);
+  color: var(--text-main);
+}
+.infrastructure-page .infra-toolbar,
+.infrastructure-page .infra-panel-heading,
+.infrastructure-page .sensor-group,
+.infrastructure-page .history-table th,
+.infrastructure-page .history-table td { border-color: var(--border-color); }
+/* Explicit connectivity card treatment. Pages opt in only when their card's
+   existing IsOnline/online value is rendered; aggregate containers stay clear. */
+:root {
+  --connection-online-bg: #f0faf3;
+  --connection-online-border: #b9dec5;
+  --connection-offline-bg: #fff4f4;
+  --connection-offline-border: #ebc3c3;
+}
+
+html[data-theme="dark"], body.dark-theme {
+  --connection-online-bg: #19352b;
+  --connection-online-border: #39745a;
+  --connection-offline-bg: #3a2428;
+  --connection-offline-border: #7d4a50;
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) {
+    --connection-online-bg: #19352b;
+    --connection-online-border: #39745a;
+    --connection-offline-bg: #3a2428;
+    --connection-offline-border: #7d4a50;
+  }
+}
+
+.connection-card.is-online,
+.connection-card.is-offline {
+  background: var(--connection-card-bg) !important;
+  border-color: var(--connection-card-border) !important;
+}
+.connection-card.is-online { --connection-card-bg: var(--connection-online-bg); --connection-card-border: var(--connection-online-border); }
+.connection-card.is-offline { --connection-card-bg: var(--connection-offline-bg); --connection-card-border: var(--connection-offline-border); }
+
+/* Keep card tint visible through structural insets while retaining chart color. */
+.connection-card > .meter-card-header,
+.connection-card > .meter-reading,
+.connection-card > .meter-conn,
+.connection-card > .tk-header,
+.connection-card > .tk-body,
+.connection-card > .tk-conn,
+.connection-card > .dash-gw-main,
+.connection-card > .dash-gw-meta,
+.connection-card > .dash-gw-seen,
+.connection-card > .eg-body,
+.connection-card > .eg-foot,
+.connection-card > .pe-g-body,
+.connection-card > .pe-foot { background-color: transparent; }
+
+.connection-card > .eg-head,
+.connection-card > .pe-g-head {
+  background: color-mix(in srgb, var(--connection-card-bg) 72%, #075985 28%);
+}
+
+.connection-card.gw-device-card > div:last-child,
+.connection-card.gw-device-card > div:first-child > div:first-child { background-color: color-mix(in srgb, var(--connection-card-bg) 78%, transparent) !important; }

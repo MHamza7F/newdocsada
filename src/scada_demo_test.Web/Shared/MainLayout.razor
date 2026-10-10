@@ -1,7 +1,9 @@
 @inherits LayoutComponentBase
 @using scada_demo_test.Web.Services
 @inject LiveTelemetryState Live
-@implements IDisposable
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
 
 @* This is the ONE master layout - every page (Monitoring, Summary, Charts,
    Reports...) renders inside it, so sidebar/topbar/footer only exist here once. *@
@@ -26,13 +28,14 @@
     </div>
 }
 
-<div class="app-shell @(IsCollapsed ? "sidebar-collapsed" : "")">
+<a class="skip-link" href="#main-content">Skip to main content</a>
+<div class="app-shell @(IsCollapsed ? "sidebar-collapsed" : "")" @ref="_shell">
     <NavMenu IsCollapsed="IsCollapsed" IsMobileOpen="IsMobileOpen" OnBackdropClick="CloseMobile" />
 
     <div class="app-main">
-        <TopBar OnToggleSidebar="ToggleSidebar" />
+        <TopBar OnToggleSidebar="ToggleSidebar" OnToggleMobile="ToggleMobile" IsCollapsed="IsCollapsed" IsMobileOpen="IsMobileOpen" />
 
-        <main class="app-content">
+        <main id="main-content" class="app-content" tabindex="-1">
             @Body
         </main>
 
@@ -45,6 +48,9 @@
 @code {
     private bool IsCollapsed = false;   // desktop: icon-only mode
     private bool IsMobileOpen = false;  // mobile: off-canvas open/closed
+    private ElementReference _shell;
+    private IJSObjectReference? _sidebarModule;
+    private DotNetObjectReference<MainLayout>? _self;
 
     private readonly record struct AlertToast(Guid Id, LiveTelemetryState.AlertIncidentDto Incident, DateTime Timestamp);
     private readonly List<AlertToast> _alertToasts = new();
@@ -65,7 +71,19 @@
     protected override void OnInitialized()
     {
         Live.OnAlertIncident += HandleAlertIncident;
+        Navigation.LocationChanged += OnLocationChanged;
     }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _sidebarModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/sidebar.js");
+        _self = DotNetObjectReference.Create(this);
+        await _sidebarModule.InvokeVoidAsync("initialize", _shell, _self);
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
+        => _ = InvokeAsync(() => { CloseMobile(); StateHasChanged(); });
 
     private void HandleAlertIncident(LiveTelemetryState.AlertIncidentDto incident)
     {
@@ -87,20 +105,35 @@
 
     private void ToggleSidebar()
     {
-        // One button does the right thing on both breakpoints -
-        // CSS decides at runtime which mode is "active" via media queries,
-        // this just flips both flags so either mode responds correctly.
         IsCollapsed = !IsCollapsed;
+    }
+
+    private void ToggleMobile()
+    {
         IsMobileOpen = !IsMobileOpen;
     }
+
+    [JSInvokable]
+    public Task DismissMobileSidebar() => InvokeAsync(() => { CloseMobile(); StateHasChanged(); });
 
     private void CloseMobile()
     {
         IsMobileOpen = false;
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         Live.OnAlertIncident -= HandleAlertIncident;
+        Navigation.LocationChanged -= OnLocationChanged;
+        if (_sidebarModule is not null)
+        {
+            try
+            {
+                await _sidebarModule.InvokeVoidAsync("dispose", _shell);
+                await _sidebarModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException) { }
+        }
+        _self?.Dispose();
     }
 }

@@ -8,6 +8,7 @@ namespace scada_demo_test.API.Controllers;
 
 [ApiController]
 [Route("api/audit-logs")]
+[Authorize(Policy = $"Action:{AppPermissions.AuditLogsView}")]
 public class AuditLogsController : ControllerBase
 {
     private readonly MyDbContextDxy _db;

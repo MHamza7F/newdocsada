@@ -23,6 +23,21 @@
     </div>
 }
 
+<div style="display:flex;gap:1rem;margin:1rem 0 1.2rem;flex-wrap:wrap;">
+    <div style="background:var(--bg-card);border:1px solid var(--border);padding:0.6rem 1.2rem;border-radius:8px;min-width:140px;">
+        <div style="color:var(--text-muted);font-size:0.75rem;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Registered Gateways</div>
+        <div style="font-size:1.4rem;font-weight:700;color:var(--primary-blue);margin-top:2px;">@GatewayDevices.Count</div>
+    </div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);padding:0.6rem 1.2rem;border-radius:8px;min-width:140px;">
+        <div style="color:var(--text-muted);font-size:0.75rem;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Online Gateways</div>
+        <div style="font-size:1.4rem;font-weight:700;color:var(--accent-emerald);margin-top:2px;">@GatewayDevices.Count(d => d.IsOnline)</div>
+    </div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);padding:0.6rem 1.2rem;border-radius:8px;min-width:140px;">
+        <div style="color:var(--text-muted);font-size:0.75rem;text-transform:uppercase;font-weight:600;letter-spacing:0.5px;">Total Field Sensors</div>
+        <div style="font-size:1.4rem;font-weight:700;color:var(--text-primary);margin-top:2px;">@GatewayDevices.Sum(d => d.SensorCount)</div>
+    </div>
+</div>
+
 @* ---------- Step 1: registered gateways ---------- *@
 <h3 style="color:var(--text-primary);font-size:0.95rem;margin:1rem 0 0.5rem;text-transform:uppercase;letter-spacing:0.5px;">Registered Gateways</h3>
 
@@ -30,8 +45,8 @@
 {
     <div class="glass-card" style="text-align:center;padding:2.5rem;">
         <div style="font-size:2rem;margin-bottom:0.5rem;">🔌</div>
-        <h3 style="color:var(--text-primary);margin-bottom:0.4rem;">No Gateways Yet</h3>
-        <p style="color:var(--text-muted);font-size:0.9rem;">Click <strong>+ Add Gateway</strong> to register a USR-W610 (Modbus TCP) or Norvi gateway, then come back here to scan its bus.</p>
+        <h3 style="color:var(--text-primary);margin-bottom:0.4rem;">No Gateways Configured</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem;">Register your USR-W610 Modbus TCP gateway using the <strong>+ Add Gateway</strong> button above, then scan its RS-485 bus to detect connected meters. Devices created from the Gateway tab appear only here.</p>
     </div>
 }
 
@@ -45,28 +60,39 @@ else
         @foreach (var d in GatewayDevices)
         {
             var isSelected = SelectedGatewayGuid == d.Id;
-            <div class="glass-card" style="padding:0.9rem 1.1rem;cursor:pointer;border:1px solid @(isSelected ? "var(--primary-blue)" : "var(--border)");box-shadow:@(isSelected ? "0 0 0 1px var(--primary-blue)" : "none");"
+            var sensorCount = d.SensorCount;
+            var capacity = d.MaxSensorCapacity;
+            <div class="glass-card gw-device-card connection-card @(d.IsOnline ? "is-online" : "is-offline")" style="margin-bottom:0.9rem;padding:1.1rem 1.3rem;cursor:pointer;border-left:4px solid @(d.IsOnline ? "var(--accent-emerald)" : "var(--border)");"
                  @onclick="() => SelectGateway(d)">
-                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.6rem;">
-                    <div style="display:flex;align-items:center;gap:0.8rem;">
-                        <div style="width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:@(d.IsOnline ? "rgba(16,185,129,0.12)" : "rgba(148,163,184,0.12)");">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="@(d.IsOnline ? "var(--accent-emerald)" : "var(--text-muted)")" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.8rem;">
+                    <div style="display:flex;align-items:center;gap:1rem;">
+                        <div style="width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:@(d.IsOnline ? "rgba(16,185,129,0.12)" : "rgba(148,163,184,0.12)");">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="@(d.IsOnline ? "var(--accent-emerald)" : "var(--text-muted)")" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <rect x="2" y="3" width="20" height="14" rx="2" />
                                 <line x1="8" y1="21" x2="16" y2="21" />
                                 <line x1="12" y1="17" x2="12" y2="21" />
                             </svg>
                         </div>
                         <div>
-                            <div style="font-weight:700;color:var(--text-primary);">
-                                @d.Name <span style="font-size:0.72rem;font-weight:600;padding:0.12rem 0.45rem;border-radius:6px;background:var(--bg-surface);color:var(--text-muted);border:1px solid var(--border);">@d.ExternalId</span>
+                            <div style="font-weight:700;color:var(--text-primary);font-size:1.1rem;display:flex;align-items:center;gap:0.5rem;">
+                                @d.Name
+                                <span style="font-size:0.75rem;font-weight:600;padding:0.15rem 0.5rem;border-radius:6px;background:var(--bg-surface);color:var(--text-muted);border:1px solid var(--border);">@d.ExternalId</span>
                             </div>
-                            <div style="color:var(--text-muted);font-size:0.8rem;">
-                                <strong>@d.HardwareType</strong> &bull; <code style="color:var(--primary-blue);">@d.IpAddress:@d.Port</code> &bull; @d.SensorCount sensors
+                            <div style="color:var(--text-muted);font-size:0.82rem;margin-top:3px;">
+                                <strong>@d.HardwareType</strong> &bull; IP: <code style="color:var(--primary-blue);">@d.IpAddress:@d.Port</code>
+                                @if (d.LastSeenAt.HasValue)
+                                {
+                                    <span style="margin-left:8px;color:var(--text-muted);">Last seen: @d.LastSeenAt.Value.ToLocalTime().ToString("HH:mm:ss")</span>
+                                }
                             </div>
                         </div>
                     </div>
-                    <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
-                        <span style="font-size:0.75rem;font-weight:700;padding:0.28rem 0.7rem;border-radius:12px;background:@(d.IsOnline ? "rgba(16,185,129,0.15)" : "rgba(148,163,184,0.15)");color:@(d.IsOnline ? "var(--accent-emerald)" : "var(--text-muted)");">
+                    <div style="display:flex;align-items:center;gap:1.2rem;">
+                        <div style="text-align:right;font-size:0.82rem;">
+                            <div style="color:var(--text-muted);font-size:0.75rem;text-transform:uppercase;">Capacity</div>
+                            <div style="font-weight:700;color:var(--text-primary);">@(sensorCount) / @(capacity) Sensors</div>
+                        </div>
+                        <span style="font-size:0.75rem;font-weight:700;padding:0.3rem 0.75rem;border-radius:12px;background:@(d.IsOnline ? "rgba(16,185,129,0.15)" : "rgba(148,163,184,0.15)");color:@(d.IsOnline ? "var(--accent-emerald)" : "var(--text-muted)");">
                             @(d.IsOnline ? "● ONLINE" : "○ OFFLINE")
                         </span>
                         <button class="btn-secondary-scada" style="font-size:0.75rem;padding:0.3rem 0.7rem;"
@@ -79,16 +105,39 @@ else
                                 disabled="@(Scanning || string.IsNullOrWhiteSpace(d.IpAddress))">
                             @(Scanning && SelectedGatewayGuid == d.Id && ScanModeLabel.Contains("Full") ? "Scanning…" : "🔍 Find Sensors")
                         </button>
-                        <button class="btn-small" style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25);border-radius:6px;padding:0.3rem 0.65rem;font-size:0.75rem;font-weight:600;"
+                        <button class="btn-small" style="background:var(--accent-rose-light);color:var(--accent-rose);border:1px solid var(--accent-rose);border-radius:6px;padding:0.3rem 0.65rem;font-size:0.75rem;font-weight:600;"
                                 @onclick="() => PromptDeleteDevice(d)" @onclick:stopPropagation
                                 disabled="@DeleteBusy">
-                            Delete
+                            Delete Device
                         </button>
+                        <span style="color:var(--text-muted);font-size:0.85rem;transition:transform .2s;transform:rotate(@(isSelected ? "90" : "0")deg);">▶</span>
                     </div>
                 </div>
 
-                @* ---------- always-visible child sensors of this gateway ---------- *@
-                <div style="margin-top:0.7rem;padding-top:0.6rem;border-top:1px solid var(--border);" @onclick:stopPropagation>
+                <div style="display:flex;align-items:center;gap:1rem;margin-top:0.6rem;padding:0.45rem 0.7rem;background:var(--bg-surface);border-radius:6px;border:1px solid var(--border);font-size:0.78rem;flex-wrap:wrap;">
+                    <span style="font-weight:700;color:@(d.IsOnline ? "var(--accent-emerald)" : "var(--accent-rose)");">
+                        @(d.IsOnline ? "● DEVICE ONLINE" : "○ DEVICE OFFLINE")
+                    </span>
+                    <span style="color:var(--border)">|</span>
+                    <span style="color:var(--text-muted);">Sensors: <strong style="color:var(--text-primary);">@d.SensorCount</strong>/@(capacity)</span>
+                    <span style="color:var(--border)">|</span>
+                    @if (d.LastSeenAt.HasValue)
+                    {
+                        <span style="color:var(--text-muted);">Last seen: <strong style="color:var(--text-primary);">@d.LastSeenAt.Value.ToLocalTime().ToString("HH:mm:ss")</strong></span>
+                    }
+                    else
+                    {
+                        <span style="color:var(--text-muted);">Never seen</span>
+                    }
+                </div>
+            </div>
+
+            @if (isSelected)
+            {
+                <div style="margin:-0.4rem 0 1rem 1.4rem;border-left:2px solid var(--border);padding-left:1.1rem;" @onclick:stopPropagation>
+
+                @* ---------- attached child sensors of this gateway ---------- *@
+                <div style="margin-top:0.7rem;padding-top:0.6rem;border-top:1px solid var(--border);">
                     @if (AllChildren.TryGetValue(d.Id, out var childList) && childList.Count > 0)
                     {
                         <div style="font-weight:700;color:var(--text-primary);font-size:0.85rem;margin-bottom:0.45rem;">Attached Sensor Children (@childList.Count)</div>
@@ -117,7 +166,7 @@ else
                                             @onclick="() => OpenEditSensor(s)" @onclick:stopPropagation>
                                         ⚙ Edit Parameters
                                     </button>
-                                    <button class="btn-small" style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.75rem;font-weight:600;"
+                                    <button class="btn-small" style="background:var(--accent-rose-light);color:var(--accent-rose);border:1px solid var(--accent-rose);border-radius:6px;padding:0.25rem 0.6rem;font-size:0.75rem;font-weight:600;"
                                             @onclick="() => PromptDeleteSensor(s)" @onclick:stopPropagation
                                             disabled="@DeleteBusy">
                                         Delete Sensor
@@ -340,13 +389,10 @@ else
                         }
                     </div>
                 }
-            </div>
 
-            @if (isSelected)
-            {
-                @* ---------- Step 4: configure picked meters + children ---------- *@
-                @if (PickedMeters.Count > 0)
-                {
+                    @* ---------- Step 4: configure picked meters ---------- *@
+                    @if (PickedMeters.Count > 0)
+                    {
                     <div style="border:1px solid var(--primary-blue);border-left:4px solid var(--primary-blue);border-radius:8px;padding:0.9rem 1rem;background:var(--bg-card);margin:-0.2rem 0 0.9rem 0;">
                         <div style="font-weight:700;color:var(--text-primary);font-size:0.88rem;margin-bottom:0.5rem;">Selected Meters (@PickedMeters.Count)</div>
                         <div style="display:flex;flex-direction:column;gap:0.5rem;">
@@ -377,6 +423,7 @@ else
                         </div>
                     </div>
                 }
+                </div>
             }
         }
     </div>
@@ -417,7 +464,6 @@ else
                         <label>Hardware Type *</label>
                         <select class="custom-select" @bind="NewDeviceHardware">
                             <option value="USR-W610">USR-W610</option>
-                            <option value="Norvi (ESP32)">Norvi (ESP32)</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -519,7 +565,7 @@ else
                                     @onclick="() => ToggleAllParams(true)">
                                 Select All
                             </button>
-                            <button type="button" style="border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;background:var(--bg-surface);color:#ef4444;font-size:0.74rem;font-weight:600;cursor:pointer;"
+                            <button type="button" style="border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;background:var(--bg-surface);color:var(--accent-rose);font-size:0.74rem;font-weight:600;cursor:pointer;"
                                     @onclick="() => ToggleAllParams(false)">
                                 Clear
                             </button>
@@ -628,7 +674,7 @@ else
                                     @onclick="() => ToggleAllEditParams(true)">
                                 Select All
                             </button>
-                            <button type="button" style="border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;background:var(--bg-surface);color:#ef4444;font-size:0.74rem;font-weight:600;cursor:pointer;"
+                            <button type="button" style="border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;background:var(--bg-surface);color:var(--accent-rose);font-size:0.74rem;font-weight:600;cursor:pointer;"
                                     @onclick="() => ToggleAllEditParams(false)">
                                 Clear
                             </button>
@@ -698,7 +744,7 @@ else
     <div class="modal-overlay" @onclick="() => DeviceToDelete = null">
         <div class="modal-card glass-card" style="min-width:440px;" @onclick:stopPropagation>
             <div class="modal-header">
-                <h3 style="color:#ef4444;">Delete Gateway Device</h3>
+                <h3 style="color:var(--accent-rose);">Delete Gateway Device</h3>
                 <button class="modal-close" @onclick="() => DeviceToDelete = null">✕</button>
             </div>
             <div class="modal-body">
@@ -711,7 +757,7 @@ else
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary-scada" @onclick="() => DeviceToDelete = null" disabled="@DeleteBusy">Cancel</button>
-                <button class="btn-primary-scada" style="background:#ef4444;border-color:#ef4444;"
+                                <button class="btn-primary-scada" style="background:var(--accent-rose);border-color:var(--accent-rose);"
                         @onclick="ConfirmDeleteDeviceAsync" disabled="@DeleteBusy">
                     @(DeleteBusy ? "Deleting…" : "Confirm Delete Gateway")
                 </button>
@@ -726,7 +772,7 @@ else
     <div class="modal-overlay" @onclick="() => SensorToDelete = null">
         <div class="modal-card glass-card" style="min-width:440px;" @onclick:stopPropagation>
             <div class="modal-header">
-                <h3 style="color:#ef4444;">Delete Field Sensor</h3>
+                <h3 style="color:var(--accent-rose);">Delete Field Sensor</h3>
                 <button class="modal-close" @onclick="() => SensorToDelete = null">✕</button>
             </div>
             <div class="modal-body">
@@ -739,7 +785,7 @@ else
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary-scada" @onclick="() => SensorToDelete = null" disabled="@DeleteBusy">Cancel</button>
-                <button class="btn-primary-scada" style="background:#ef4444;border-color:#ef4444;"
+                                <button class="btn-primary-scada" style="background:var(--accent-rose);border-color:var(--accent-rose);"
                         @onclick="ConfirmDeleteSensorAsync" disabled="@DeleteBusy">
                     @(DeleteBusy ? "Deleting…" : "Confirm Delete Sensor")
                 </button>
@@ -869,7 +915,8 @@ else
     protected override async Task OnInitializedAsync()
     {
         await LoadGatewaysAsync();
-        SensorLibraries = await Api.GetSensorLibrariesAsync();
+        try { SensorLibraries = await Api.GetSensorLibrariesAsync(); }
+        catch (Exception ex) { await ToastAsync($"Failed to load sensor library: {ex.Message}", true); }
 
         // 4-second live refresh: gateway status + children of the selected gateway.
         _timer = new System.Threading.Timer(async _ =>
@@ -896,7 +943,11 @@ else
     {
         try
         {
-            GatewayDevices = (await Api.GetGatewayDevicesAsync()).OrderBy(d => d.CreatedAt ?? DateTime.MaxValue).ThenBy(d => d.Id).ToList();
+            // This tab only shows devices registered from the Gateway tab; Norvi
+            // tab devices live exclusively on /devices.
+            GatewayDevices = (await Api.GetGatewayDevicesAsync())
+                .Where(d => string.Equals(d.ProvisionedVia, "Gateway", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(d => d.CreatedAt ?? DateTime.MaxValue).ThenBy(d => d.Id).ToList();
             var all = await Api.GetSensorsAsync();
             AllChildren = all.GroupBy(s => s.DeviceId).ToDictionary(g => g.Key, g => g.ToList());
         }
@@ -931,7 +982,7 @@ else
             ChildrenSensors = await Api.GetSensorsAsync(deviceId);
             AllChildren[deviceId] = ChildrenSensors ?? new();
         }
-        catch { ChildrenSensors = new(); }
+        catch (Exception ex) { await ToastAsync($"Unable to load attached sensors: {ex.Message}", true); }
     }
 
     private void PromptDeleteDevice(ScadaDemoTestApiClient.GatewayDeviceDto d)
@@ -1209,7 +1260,8 @@ else
         if (string.IsNullOrWhiteSpace(json)) return new();
         try
         {
-            return System.Text.Json.JsonSerializer.Deserialize<SensorConfigDto>(json) ?? new();
+            return System.Text.Json.JsonSerializer.Deserialize<SensorConfigDto>(
+                json, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new();
         }
         catch { return new(); }
     }
@@ -1426,6 +1478,16 @@ else
         DeviceFormError = null;
         DeviceFormSuccess = null;
 
+        var name = NewDeviceName.Trim();
+        var dupName = GatewayDevices.FirstOrDefault(d =>
+            string.Equals(d.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase));
+        if (dupName != null)
+        {
+            DeviceFormError = $"A device named '{name}' already exists ({dupName.ExternalId}). Choose a different name.";
+            DeviceSubmitBusy = false;
+            return;
+        }
+
         var ip = SanitizeIp(NewDeviceIp);
         var dup = GatewayDevices.FirstOrDefault(d =>
             string.Equals(SanitizeIp(d.IpAddress ?? ""), ip, StringComparison.OrdinalIgnoreCase));
@@ -1438,7 +1500,7 @@ else
 
         var req = new ScadaDemoTestApiClient.CreateGatewayDeviceRequest(
             NewDeviceName.Trim(), NewDeviceHardware, ip, NewDevicePort, NewDeviceBaud,
-            NewDeviceParityStop, 1, NewDeviceTimeout, null);
+            NewDeviceParityStop, 1, NewDeviceTimeout, null, "Gateway");
 
         var (ok, data, err) = await Api.CreateGatewayDeviceAsync(req);
         if (!ok)

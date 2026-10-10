@@ -52,7 +52,8 @@ public class DevicesController : ControllerBase
         bool IsOnline,
         DateTime? LastSeenAt,
         DateTime? CreatedAt,
-        Guid? SiteId = null);
+        Guid? SiteId = null,
+        string ProvisionedVia = DeviceOrigin.Norvi);
 
     public record CreateDeviceRequest(
         string Name,
@@ -63,11 +64,13 @@ public class DevicesController : ControllerBase
         string? Parity,
         int? StopBits,
         int? TimeoutMs,
-        Guid? SiteId);
+        Guid? SiteId,
+        string? ProvisionedVia = null);
 
     public record ScanBusRequest(int? ProbeTimeoutMs, int? StartAddress, int? EndAddress, int? Passes, bool? DeepDuplicateCheck);
 
     [HttpGet]
+    [Authorize(Policy = $"Action:{AppPermissions.DevicesView}")]
     public async Task<IActionResult> GetAll()
     {
         var devices = await _devices.GetAllAsync();
@@ -78,6 +81,7 @@ public class DevicesController : ControllerBase
     }
 
     [HttpGet("{id:guid}")]
+    [Authorize(Policy = $"Action:{AppPermissions.DevicesView}")]
     public async Task<IActionResult> GetOne(Guid id)
     {
         var device = await _devices.GetByIdAsync(id);
@@ -204,6 +208,12 @@ public class DevicesController : ControllerBase
         if (dto.Port is < 1 or > 65535)
             return BadRequest(new { message = "Port must be between 1 and 65535." });
 
+        var name = dto.Name.Trim();
+        var existingName = (await _devices.GetAllAsync()).FirstOrDefault(d =>
+            string.Equals(d.Name?.Trim(), name, StringComparison.OrdinalIgnoreCase));
+        if (existingName != null)
+            return Conflict(new { message = $"A device named '{name}' is already registered ({existingName.ExternalId}). Device names must be unique." });
+
         var ip = CleanIpAddress(dto.IpAddress);
         if (string.IsNullOrWhiteSpace(ip))
             return BadRequest(new { message = "Valid IP address / host is required." });
@@ -216,11 +226,12 @@ public class DevicesController : ControllerBase
         {
             Id = Guid.NewGuid(),
             ExternalId = "DEV-" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant(),
-            Name = dto.Name.Trim(),
+            Name = name,
             DeviceType = DeviceType.Gateway,
             Protocol = ProtocolType.ModbusTcp,
             Status = DeviceStatus.Offline,
             HardwareType = hardwareType,
+            ProvisionedVia = DeviceOrigin.Normalize(dto.ProvisionedVia, hardwareType == DeviceHardwareType.NorviESP32),
             IpAddress = ip,
             Port = dto.Port ?? 502,
             BaudRate = dto.BaudRate ?? 9600,
@@ -265,7 +276,13 @@ public class DevicesController : ControllerBase
         if (ipOwner != null)
             return Conflict(new { message = $"IP address '{updateIp}' is already registered to gateway '{ipOwner.Name}' ({ipOwner.ExternalId}). Each gateway needs a unique IP address." });
 
-        device.Name = dto.Name.Trim();
+        var updateName = dto.Name.Trim();
+        var nameOwner = (await _devices.GetAllAsync()).FirstOrDefault(d =>
+            d.Id != id && string.Equals(d.Name?.Trim(), updateName, StringComparison.OrdinalIgnoreCase));
+        if (nameOwner != null)
+            return Conflict(new { message = $"A device named '{updateName}' is already registered ({nameOwner.ExternalId}). Device names must be unique." });
+
+        device.Name = updateName;
         device.HardwareType = hardwareType;
         device.IpAddress = updateIp;
         device.Port = dto.Port ?? 502;
@@ -324,7 +341,10 @@ public class DevicesController : ControllerBase
         d.IsOnline,
         d.LastSeenAt,
         d.CreatedAt,
-        d.SiteId);
+        d.SiteId,
+        string.IsNullOrWhiteSpace(d.ProvisionedVia)
+            ? (d.HardwareType == DeviceHardwareType.NorviESP32 ? DeviceOrigin.Norvi : DeviceOrigin.Gateway)
+            : d.ProvisionedVia);
 
     private static string HardwareTypeName(DeviceHardwareType type) => type switch
     {

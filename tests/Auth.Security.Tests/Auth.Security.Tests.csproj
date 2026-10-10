@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/scada_demo_test.Infrastructure/scada_demo_test.Infrastructure.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- Compile the real boundary code without pulling unrelated SignalR client packages into this offline suite. -->
+    <Compile Include="../../src/scada_demo_test.API/Filters/RequireUsersTabAttribute.cs" Link="Source/RequireUsersTabAttribute.cs" />
+    <Compile Include="../../src/scada_demo_test.API/Controllers/ReadingsController.cs" Link="Source/ReadingsController.cs" />
+    <Compile Include="../../src/scada_demo_test.API/Controllers/FirmwareController.cs" Link="Source/FirmwareController.cs" />
+    <Compile Include="../../src/scada_demo_test.Web/Services/PermissionForwardingHandler.cs" Link="Source/PermissionForwardingHandler.cs" />
+    <Compile Include="../../src/scada_demo_test.Web/Services/WebAuthSessionStore.cs" Link="Source/WebAuthSessionStore.cs" />
+    <Compile Include="../../src/scada_demo_test.Web/Services/ScadaDemoTestApiClient.cs" Link="Source/ScadaDemoTestApiClient.cs" />
+    <Using Include="Microsoft.AspNetCore.Http" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

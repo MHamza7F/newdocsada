@@ -1,5 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using scada_demo_test.Domain.Constants;
 using Microsoft.EntityFrameworkCore;
 using scada_demo_test.Infrastructure.Persistence;
 
@@ -7,6 +9,8 @@ namespace scada_demo_test.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Policy = $"Action:{AppPermissions.ReportsView}")]
+[Authorize(Policy = $"Action:{AppPermissions.ReportsExportExcel}")]
 public class ExportController : ControllerBase
 {
     private readonly MyDbContextDxy _db;

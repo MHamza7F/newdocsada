@@ -59,7 +59,7 @@ public class AuthController : ControllerBase
 
         var roles = await _userManager.GetRolesAsync(user);
         var roleName = roles.FirstOrDefault() ?? string.Empty;
-        var role = await _roleManager.FindByNameAsync(roleName);
+        var role = string.IsNullOrEmpty(roleName) ? null : await _roleManager.FindByNameAsync(roleName);
 
         var permissions = role != null
             ? await _permissions.GetGrantedTabsForRoleAsync(role.Id, roleName)
@@ -136,7 +136,7 @@ public class AuthController : ControllerBase
 
         var roles = await _userManager.GetRolesAsync(user);
         var roleName = roles.FirstOrDefault() ?? string.Empty;
-        var role = await _roleManager.FindByNameAsync(roleName);
+        var role = string.IsNullOrEmpty(roleName) ? null : await _roleManager.FindByNameAsync(roleName);
         var perms = role != null
             ? await _permissions.GetGrantedTabsForRoleAsync(role.Id, roleName)
             : new List<string>();

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using scada_demo_test.Application.DTOs.Roles;
 using scada_demo_test.Domain.Constants;
@@ -9,6 +10,7 @@ namespace scada_demo_test.API.Controllers;
 
 [ApiController]
 [Route("api/roles")]
+[Authorize(Policy = $"Action:{AppPermissions.RolesManage}")]
 public class RolesController : ControllerBase
 {
     private readonly RoleManager<AppRole> _roleManager;

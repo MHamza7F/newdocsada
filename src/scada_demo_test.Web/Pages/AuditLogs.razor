@@ -9,7 +9,7 @@
         <p class="page-subtitle">Complete chronological activity log: who changed what, when, from which IP</p>
     </div>
     <div class="header-actions">
-        <button class="btn-sm-report" @onclick="LoadLogsAsync">🔄 Refresh Log</button>
+        <button class="btn-sm-report" @onclick="LoadLogsAsync" disabled="@IsLoading">🔄 @(IsLoading ? "Loading..." : "Refresh Log")</button>
     </div>
 </div>
 
@@ -22,6 +22,14 @@
             <span>Total Events: <strong>@TotalCount</strong></span>
         </div>
     </div>
+
+    @if (LoadError is not null)
+    {
+        <div class="scada-toast error" role="alert" style="margin:12px 18px;">
+            <span>@LoadError</span>
+            <button class="btn-sm-action-ack" @onclick="LoadLogsAsync">Retry</button>
+        </div>
+    }
 
     <div class="table-responsive">
         <table class="scada-table">
@@ -36,7 +44,15 @@
                 </tr>
             </thead>
             <tbody>
-                @if (Logs.Count == 0)
+                @if (IsLoading)
+                {
+                    <tr><td colspan="6" class="text-center text-muted" style="padding:30px;">Loading audit log events...</td></tr>
+                }
+                else if (LoadError is not null)
+                {
+                    <tr><td colspan="6" class="text-center text-muted" style="padding:30px;">Audit log events are unavailable until the load succeeds.</td></tr>
+                }
+                else if (Logs.Count == 0)
                 {
                     <tr>
                         <td colspan="6" class="text-center text-muted" style="padding: 30px;">
@@ -99,6 +115,8 @@
     private int TotalCount = 0;
     private string SearchQuery = "";
     private int CurrentPage = 1;
+    private bool IsLoading;
+    private string? LoadError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -107,9 +125,28 @@
 
     private async Task LoadLogsAsync()
     {
-        var result = await Api.GetAuditLogsAsync(SearchQuery, CurrentPage, 10);
-        Logs = result.Items;
-        TotalCount = result.Total;
+        IsLoading = true;
+        LoadError = null;
+        try
+        {
+            var result = await Api.GetAuditLogsAsync(SearchQuery, CurrentPage, 10);
+            Logs = result.Items;
+            TotalCount = result.Total;
+        }
+        catch (Exception ex)
+        {
+            // Do not leave privileged events visible after an authorization or transport failure.
+            Logs = new();
+            TotalCount = 0;
+            var denied = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized };
+            LoadError = denied
+                ? "You do not have permission to view audit logs. Retry after your permissions are updated."
+                : "Unable to load audit logs. Check the connection and retry.";
+        }
+        finally
+        {
+            IsLoading = false;
+        }
     }
 
     private async Task ChangePageAsync(int page)

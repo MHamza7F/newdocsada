@@ -150,9 +150,34 @@ public sealed class ModbusTcpSession : IDisposable
             // misread as the next transaction's reply. A timed-out session is dead -
             // the next read must fail loudly (ObjectDisposedException) so callers
             // reconnect instead of parsing garbage.
-            _lastResponse = null;
-            try { _stream.Dispose(); _client.Dispose(); } catch { }
+            KillSession();
             throw new TimeoutException($"Gateway did not respond within {timeoutMs} ms.");
+        }
+        catch (TimeoutException)
+        {
+            // ReadExactlyAsync turns its own deadline into a TimeoutException - it must
+            // kill the session for exactly the same reason as the branch above, or the
+            // late reply of THIS request would be parsed as the answer to the NEXT one.
+            KillSession();
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            // Caller cancellation also abandons an in-flight transaction. Its late
+            // reply must never be consumed by a later request on this connection.
+            KillSession();
+            throw;
+        }
+        catch (ModbusException ex) when (ex.IsProtocolError)
+        {
+            // An invalid MBAP header may leave an unread PDU (or more replies) behind.
+            KillSession();
+            throw;
+        }
+        catch (IOException)
+        {
+            KillSession();
+            throw;
         }
         catch
         {
@@ -165,6 +190,14 @@ public sealed class ModbusTcpSession : IDisposable
         }
     }
 
+    // A timed-out session is dead: any byte still in flight belongs to the abandoned
+    // transaction and would desynchronise every later read on this connection.
+    private void KillSession()
+    {
+        _lastResponse = null;
+        try { _stream.Dispose(); _client.Dispose(); } catch { }
+    }
+
     private async Task RejectRepeatedResponseAsync(int timeoutMs, CancellationToken ct)
     {
         if (_lastResponse is not { } last || !_stream.DataAvailable) return;
@@ -173,21 +206,33 @@ public sealed class ModbusTcpSession : IDisposable
             var header = await ReadExactlyAsync(7, ct, timeoutMs);
             var length = (header[4] << 8) | header[5];
             if (((header[0] << 8) | header[1]) != _lastTxId || header[2] != 0 || header[3] != 0 ||
-                header[6] != last.Slave || length != 3 + last.Payload.Length)
+                header[6] != last.Slave || length is < 3 or > 254)
             {
-                _lastResponse = null;
-                return;
+                throw new ModbusException("Invalid trailing Modbus MBAP response.", isProtocolError: true);
             }
+
+            // The header belongs to our transaction, so the PDU MUST be drained even
+            // when its shape differs: leaving it in the stream would feed those bytes
+            // to the next request's header read and turn a real bus conflict into a
+            // meaningless framing error.
             var pdu = await ReadExactlyAsync(length - 1, ct, timeoutMs);
-            if (pdu[0] != last.Function || pdu[1] != last.Payload.Length)
+            bool looksLikeAnAnswer = pdu.Length > 0 &&
+                (pdu[0] == last.Function || pdu[0] == (last.Function | 0x80));
+            if (!looksLikeAnAnswer)
             {
-                _lastResponse = null;
-                return;
+                throw new ModbusException("Invalid trailing Modbus function.", isProtocolError: true);
             }
-            // Thrown on purpose: two replies to one transaction mean two devices are
-            // racing on this slave ID. The outer catch below must NOT swallow it.
+
+            // Thrown on purpose: two answers to one transaction mean two devices are
+            // racing on this slave ID - regardless of whether they reply with the same
+            // shape (identical meters) or one replies with data and the other with a
+            // Modbus exception (different families sharing the ID). The outer catch
+            // below must NOT swallow it.
+            var payload = pdu.Length > 2 && pdu[0] == last.Function && pdu[1] == last.Payload.Length
+                ? pdu[2..]
+                : Array.Empty<byte>();
             throw new ModbusRepeatedResponseException(last.Slave, last.Function, last.Start, last.Quantity,
-                last.Payload, pdu[2..]);
+                last.Payload, payload);
         }
         catch (ModbusRepeatedResponseException)
         {
@@ -197,7 +242,9 @@ public sealed class ModbusTcpSession : IDisposable
         catch
         {
             _lastResponse = null;
-            return;
+            // A partial trailing frame, cancellation or broken stream is not a
+            // successful read. Let the request handler invalidate the connection.
+            throw;
         }
     }
 

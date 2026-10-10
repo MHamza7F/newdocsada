@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authorization;
+using scada_demo_test.Domain.Constants;
 using Microsoft.AspNetCore.Mvc;
 using scada_demo_test.Application.DTOs.Users;
 using scada_demo_test.Infrastructure.Identity;
@@ -8,6 +10,7 @@ namespace scada_demo_test.API.Controllers;
 
 [ApiController]
 [Route("api/users")]
+[Authorize(Policy = $"Action:{AppPermissions.UsersManage}")]
 public class UsersController : ControllerBase
 {
     private readonly UserManager<AppUser> _userManager;

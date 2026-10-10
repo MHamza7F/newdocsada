@@ -21,6 +21,7 @@ public class SitesController : ControllerBase
     }
 
     [HttpGet]
+    [Authorize(Policy = $"Action:{AppPermissions.SitesView}")]
     public async Task<IActionResult> GetAll()
     {
         var sites = await _db.Sites.AsNoTracking().OrderBy(s => s.Code).ToListAsync();

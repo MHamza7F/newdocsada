@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using scada_demo_test.Domain.Constants;
 using Microsoft.EntityFrameworkCore;
 using scada_demo_test.Domain.Entities;
 using scada_demo_test.Infrastructure.Persistence;
@@ -17,6 +19,7 @@ public class TanksController : ControllerBase
     }
 
     [HttpGet]
+    [Authorize(Policy = $"Action:{AppPermissions.DevicesView}")]
     public async Task<IActionResult> GetAll()
     {
         var tanks = await _db.StorageTanks
@@ -27,6 +30,7 @@ public class TanksController : ControllerBase
     }
 
     [HttpGet("{id}")]
+    [Authorize(Policy = $"Action:{AppPermissions.DevicesView}")]
     public async Task<IActionResult> GetById(Guid id)
     {
         var tank = await _db.StorageTanks.FindAsync(id);
@@ -36,6 +40,7 @@ public class TanksController : ControllerBase
     public record CreateTankRequest(string TankCode, string Name, double CapacityLiters, string LiquidType, Guid? SiteId);
 
     [HttpPost]
+    [Authorize(Policy = $"Action:{AppPermissions.DevicesAdd}")]
     public async Task<IActionResult> Create([FromBody] CreateTankRequest dto)
     {
         if (string.IsNullOrWhiteSpace(dto.TankCode) || string.IsNullOrWhiteSpace(dto.Name))
@@ -71,6 +76,7 @@ public class TanksController : ControllerBase
     public record UpdateTankRequest(string Name, double CapacityLiters, string LiquidType);
 
     [HttpPut("{id}")]
+    [Authorize(Policy = $"Action:{AppPermissions.DevicesEdit}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateTankRequest dto)
     {
         var tank = await _db.StorageTanks.FindAsync(id);
@@ -86,6 +92,7 @@ public class TanksController : ControllerBase
     }
 
     [HttpDelete("{id}")]
+    [Authorize(Policy = $"Action:{AppPermissions.DevicesDelete}")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var tank = await _db.StorageTanks.FindAsync(id);

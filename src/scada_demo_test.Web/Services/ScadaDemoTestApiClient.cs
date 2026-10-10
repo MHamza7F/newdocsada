@@ -1,8 +1,4 @@
 using System.Net.Http.Json;
-using scada_demo_test.Domain.Constants;
-using scada_demo_test.Domain.Entities;
-using scada_demo_test.Domain.Enums;
-using scada_demo_test.Domain.Services;
 
 namespace scada_demo_test.Web.Services;
 
@@ -10,13 +6,10 @@ public class ScadaDemoTestApiClient : IDisposable
 {
     private readonly HttpClient _http;
     private readonly HttpClient _scan;
-    private readonly FirebaseScadaService _firebase;
-
-    public ScadaDemoTestApiClient(HttpClient http, HttpClient scan, FirebaseScadaService firebase)
+    public ScadaDemoTestApiClient(HttpClient http, HttpClient scan)
     {
         _http = http;
         _scan = scan;
-        _firebase = firebase;
     }
 
     public void Dispose()
@@ -25,7 +18,7 @@ public class ScadaDemoTestApiClient : IDisposable
         _scan.Dispose();
     }
 
-    public string BaseUrl => _firebase.DatabaseUrl;
+    public string BaseUrl => _http.BaseAddress?.ToString()?.TrimEnd('/') ?? string.Empty;
 
     // ---- Devices ----
     public record DeviceDto(Guid Id, string ExternalId, string Name, string DeviceType, string Status, int? ModbusSlaveId, string? IpAddress, DateTime? LastSeenAt);
@@ -38,124 +31,44 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<List<DeviceDto>> GetDevicesAsync()
     {
-        try
-        {
-            var devices = await _firebase.GetDevicesAsync();
-            return devices.Select(d => new DeviceDto(
-                d.Id,
-                d.ExternalId,
-                d.Name,
-                d.DeviceType.ToString(),
-                d.Status.ToString(),
-                d.ModbusSlaveId,
-                d.IpAddress,
-                d.LastSeenAt
-            )).ToList();
-        }
-        catch { return new(); }
+        var devices = await _http.GetFromJsonAsync<List<GatewayDeviceDto>>("/api/devices")
+            ?? throw new HttpRequestException("Empty devices API response.");
+        return devices.Select(d => new DeviceDto(d.Id, d.ExternalId, d.Name, d.HardwareType,
+            d.IsOnline ? "Online" : "Offline", null, d.IpAddress, d.LastSeenAt)).ToList();
     }
 
     public async Task<List<LatestSnapshotDto>> GetLatestSnapshotAsync()
     {
-        try
-        {
-            var devices = await _firebase.GetDevicesAsync();
-            var readings = await _firebase.GetRecentSensorReadingsAsync(200);
-
-            var list = new List<LatestSnapshotDto>();
-            foreach (var d in devices)
-            {
-                var flowReading = readings.FirstOrDefault(r => r.DeviceId == d.Id && r.Metric == "FlowRate");
-                var totalizerReading = readings.FirstOrDefault(r => r.DeviceId == d.Id && r.Metric == "Totalizer");
-
-                double flowRate = flowReading?.Value ?? 0;
-                string flowUnit = flowReading?.Unit ?? "";
-                double totalizer = totalizerReading?.Value ?? 0;
-                string totalizerUnit = totalizerReading?.Unit ?? "";
-
-                list.Add(new LatestSnapshotDto(
-                    d.Id,
-                    d.ExternalId,
-                    d.Name,
-                    d.DeviceType.ToString(),
-                    d.Status.ToString(),
-                    d.ModbusSlaveId,
-                    d.IpAddress,
-                    d.LastSeenAt ?? DateTime.UtcNow,
-                    flowRate,
-                    flowUnit,
-                    totalizer,
-                    totalizerUnit
-                ));
-            }
-            return list;
-        }
-        catch { return new(); }
+        return await _http.GetFromJsonAsync<List<LatestSnapshotDto>>("/api/readings/latest")
+            ?? throw new HttpRequestException("Empty latest readings API response.");
     }
 
     public async Task<List<ReadingPointDto>> GetReadingsAsync(string externalId, string metric = "FlowRate", int count = 30)
     {
-        try
-        {
-            var readings = await _firebase.GetDeviceReadingsAsync(externalId, metric, count);
-            return readings.Select(r => new ReadingPointDto(r.Timestamp, r.Value, r.Unit)).ToList();
-        }
-        catch { return new(); }
+        var readings = await _http.GetFromJsonAsync<List<ReadingPointDto>>(
+            $"/api/readings/{Uri.EscapeDataString(externalId)}?metric={Uri.EscapeDataString(metric)}&count={count}");
+        return readings ?? throw new HttpRequestException("Empty readings API response.");
     }
 
     public async Task<(bool Success, string? Error)> CreateDeviceAsync(CreateDeviceRequest dto)
     {
-        var device = new Device
-        {
-            Id = Guid.NewGuid(),
-            ExternalId = dto.ExternalId,
-            Name = dto.Name,
-            DeviceType = Enum.TryParse<DeviceType>(dto.DeviceType, true, out var dt) ? dt : DeviceType.FlowMeter,
-            Protocol = Enum.TryParse<ProtocolType>(dto.Protocol, true, out var pt) ? pt : ProtocolType.ModbusRtu,
-            Status = DeviceStatus.Online,
-            ModbusSlaveId = dto.ModbusSlaveId,
-            IpAddress = dto.IpAddress,
-            SiteId = dto.SiteId,
-            CreatedAt = DateTime.UtcNow,
-            LastSeenAt = DateTime.UtcNow
-        };
-
-        var res = await _firebase.CreateDeviceAsync(device);
-        if (res.Success)
-        {
-            _ = _firebase.LogAuditActionAsync("Device.Create", "Device", device.Id.ToString(), $"Created device {device.Name} ({device.ExternalId})");
-        }
-        return res;
+        var res = await _http.PostAsJsonAsync("/api/devices", new CreateGatewayDeviceRequest(
+            dto.Name, dto.DeviceType, dto.IpAddress, 502, 9600, "None", 1, 2000, dto.SiteId));
+        if (res.IsSuccessStatusCode) return (true, null);
+        return (false, await ReadErrorMessageAsync(res) ?? $"Create device failed ({res.StatusCode}).");
     }
 
     public async Task<(bool Success, string? Error)> UpdateDeviceAsync(Guid id, CreateDeviceRequest dto)
     {
-        var devices = await _firebase.GetDevicesAsync();
-        var existing = devices.FirstOrDefault(d => d.Id == id);
-        if (existing == null) return (false, "Device not found.");
-
-        existing.Name = dto.Name;
-        existing.ExternalId = dto.ExternalId;
-        existing.ModbusSlaveId = dto.ModbusSlaveId;
-        existing.IpAddress = dto.IpAddress;
-        existing.SiteId = dto.SiteId;
-
-        var res = await _firebase.UpdateDeviceAsync(existing);
-        if (res.Success)
-        {
-            _ = _firebase.LogAuditActionAsync("Device.Update", "Device", id.ToString(), $"Updated device {existing.Name}");
-        }
-        return res;
+        var res = await _http.PutAsJsonAsync($"/api/devices/{id}", new CreateGatewayDeviceRequest(
+            dto.Name, dto.DeviceType, dto.IpAddress, 502, 9600, "None", 1, 2000, dto.SiteId));
+        return res.IsSuccessStatusCode ? (true, null) : (false, await ReadErrorMessageAsync(res) ?? $"Update device failed ({res.StatusCode}).");
     }
 
     public async Task<(bool Success, string? Error)> DeleteDeviceAsync(Guid id)
     {
-        var res = await _firebase.DeleteDeviceAsync(id);
-        if (res.Success)
-        {
-            _ = _firebase.LogAuditActionAsync("Device.Delete", "Device", id.ToString(), $"Deleted device with ID {id}");
-        }
-        return res;
+        var res = await _http.DeleteAsync($"/api/devices/{id}");
+        return res.IsSuccessStatusCode ? (true, null) : (false, await ReadErrorMessageAsync(res) ?? $"Delete device failed ({res.StatusCode}).");
     }
 
     // ---- History & Reports ----
@@ -174,24 +87,10 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<HistorySeriesDto?> GetHistoryAsync(string externalId, string metric, DateTime from, DateTime to)
     {
-        try
-        {
-            var readings = await GetReadingsAsync(externalId, metric, 40);
-            var points = readings.Select(r => new HistoryPointDto(r.Timestamp, r.Value, 1, r.Value * 0.95, r.Value * 1.05)).ToList();
-
-            return new HistorySeriesDto(
-                Guid.NewGuid(),
-                externalId,
-                metric,
-                "m³/h",
-                "Raw",
-                false,
-                from,
-                to,
-                points
-            );
-        }
-        catch { return null; }
+        var url = $"/api/reports/{Uri.EscapeDataString(externalId)}/history?metric={Uri.EscapeDataString(metric)}" +
+            $"&from={Uri.EscapeDataString(from.ToUniversalTime().ToString("O"))}&to={Uri.EscapeDataString(to.ToUniversalTime().ToString("O"))}";
+        return await _http.GetFromJsonAsync<HistorySeriesDto>(url)
+            ?? throw new HttpRequestException("Empty history API response.");
     }
 
     // ---- Storage Tanks ----
@@ -204,33 +103,8 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<List<StorageTankDto>> GetTanksAsync()
     {
-        try
-        {
-            var apiTanks = await _http.GetFromJsonAsync<List<StorageTankDto>>("/api/tanks");
-            if (apiTanks is { Count: > 0 }) return apiTanks;
-        }
-        catch { }
-
-        try
-        {
-            var tanks = await _firebase.GetStorageTanksAsync();
-            return tanks.Select(t => new StorageTankDto(
-                t.Id,
-                t.SiteId,
-                t.TankCode,
-                t.Name,
-                t.CapacityLiters,
-                t.CurrentVolumeLiters,
-                t.LevelPercentage,
-                t.TemperatureCelsius,
-                t.Status,
-                t.LiquidType,
-                t.InletFlowRate,
-                t.OutletFlowRate,
-                t.LastUpdatedAt
-            )).ToList();
-        }
-        catch { return new(); }
+        return await _http.GetFromJsonAsync<List<StorageTankDto>>("/api/tanks")
+            ?? throw new HttpRequestException("Empty tanks API response.");
     }
 
     public async Task<(bool Success, string? Error)> CreateTankAsync(CreateTankRequest dto)
@@ -239,34 +113,11 @@ public class ScadaDemoTestApiClient : IDisposable
         {
             var res = await _http.PostAsJsonAsync("/api/tanks", dto);
             if (res.IsSuccessStatusCode) return (true, null);
-            var err = await res.Content.ReadFromJsonAsync<ErrorPayload>();
-            return (false, err?.message ?? $"Create tank failed ({res.StatusCode})");
+            var err = await ReadErrorMessageAsync(res);
+            return (false, err ?? $"Create tank failed ({res.StatusCode})");
         }
-        catch
-        {
-            var tank = new StorageTank
-            {
-                Id = Guid.NewGuid(),
-                SiteId = dto.SiteId,
-                TankCode = dto.TankCode,
-                Name = dto.Name,
-                CapacityLiters = dto.CapacityLiters,
-                CurrentVolumeLiters = dto.CapacityLiters * 0.7,
-                LevelPercentage = 70.0,
-                LiquidType = dto.LiquidType,
-                TemperatureCelsius = 24.0,
-                Status = "Normal",
-                InletFlowRate = 120.0,
-                OutletFlowRate = 100.0,
-                LastUpdatedAt = DateTime.UtcNow
-            };
-            var res = await _firebase.UpdateStorageTankAsync(tank);
-            if (res.Success)
-            {
-                _ = _firebase.LogAuditActionAsync("Tank.Create", "StorageTank", tank.Id.ToString(), $"Created tank {tank.Name} ({tank.TankCode})");
-            }
-            return res;
-        }
+        catch (HttpRequestException ex) when (IsAuthorizationFailure(ex)) { return (false, ex.Message); }
+        catch (Exception ex) { return (false, $"Tanks API request failed: {ex.Message}"); }
     }
 
     public async Task<(bool Success, string? Error)> UpdateTankAsync(Guid id, UpdateTankRequest dto)
@@ -275,27 +126,11 @@ public class ScadaDemoTestApiClient : IDisposable
         {
             var res = await _http.PutAsJsonAsync($"/api/tanks/{id}", dto);
             if (res.IsSuccessStatusCode) return (true, null);
-            var err = await res.Content.ReadFromJsonAsync<ErrorPayload>();
-            return (false, err?.message ?? $"Update tank failed ({res.StatusCode})");
+            var err = await ReadErrorMessageAsync(res);
+            return (false, err ?? $"Update tank failed ({res.StatusCode})");
         }
-        catch
-        {
-            var tanks = await _firebase.GetStorageTanksAsync();
-            var existing = tanks.FirstOrDefault(t => t.Id == id);
-            if (existing == null) return (false, "Tank not found.");
-
-            existing.Name = dto.Name;
-            existing.CapacityLiters = dto.CapacityLiters;
-            existing.LiquidType = dto.LiquidType;
-            existing.LastUpdatedAt = DateTime.UtcNow;
-
-            var res = await _firebase.UpdateStorageTankAsync(existing);
-            if (res.Success)
-            {
-                _ = _firebase.LogAuditActionAsync("Tank.Update", "StorageTank", id.ToString(), $"Updated tank {existing.Name}");
-            }
-            return res;
-        }
+        catch (HttpRequestException ex) when (IsAuthorizationFailure(ex)) { return (false, ex.Message); }
+        catch (Exception ex) { return (false, $"Tanks API request failed: {ex.Message}"); }
     }
 
     public async Task<(bool Success, string? Error)> DeleteTankAsync(Guid id)
@@ -304,21 +139,14 @@ public class ScadaDemoTestApiClient : IDisposable
         {
             var res = await _http.DeleteAsync($"/api/tanks/{id}");
             if (res.IsSuccessStatusCode) return (true, null);
-            var err = await res.Content.ReadFromJsonAsync<ErrorPayload>();
-            return (false, err?.message ?? $"Delete tank failed ({res.StatusCode})");
+            var err = await ReadErrorMessageAsync(res);
+            return (false, err ?? $"Delete tank failed ({res.StatusCode})");
         }
-        catch
-        {
-            var res = await _firebase.DeleteStorageTankAsync(id);
-            if (res.Success)
-            {
-                _ = _firebase.LogAuditActionAsync("Tank.Delete", "StorageTank", id.ToString(), $"Deleted tank {id}");
-            }
-            return res;
-        }
+        catch (HttpRequestException ex) when (IsAuthorizationFailure(ex)) { return (false, ex.Message); }
+        catch (Exception ex) { return (false, $"Tanks API request failed: {ex.Message}"); }
     }
 
-    // ---- Alerts (API / PostgreSQL-backed, NOT Firebase) ----
+    // ---- Alerts (API-backed) ----
     public record AlertIncidentDto(Guid Id, Guid? AlertRuleId, string DeviceExternalId, string DeviceName,
         string Metric, double TriggerValue, string Message, string Severity, DateTime TriggeredAt,
         DateTime? AcknowledgedAt, string? AcknowledgedBy, bool IsResolved, DateTime? ResolvedAt);
@@ -329,12 +157,8 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<List<AlertIncidentDto>> GetAlertIncidentsAsync(int limit = 50)
     {
-        try
-        {
-            var result = await _http.GetFromJsonAsync<List<AlertIncidentDto>>($"/api/alerts/incidents?limit={limit}");
-            return result ?? new();
-        }
-        catch { return new(); }
+        return await _http.GetFromJsonAsync<List<AlertIncidentDto>>($"/api/alerts/incidents?limit={limit}")
+            ?? throw new HttpRequestException("Empty alert incidents API response.");
     }
 
     public async Task<(bool Success, string? Error)> AcknowledgeAlertAsync(Guid id)
@@ -363,12 +187,8 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<List<AlertRuleDto>> GetAlertRulesAsync()
     {
-        try
-        {
-            var result = await _http.GetFromJsonAsync<List<AlertRuleDto>>("/api/alerts/rules");
-            return result ?? new();
-        }
-        catch { return new(); }
+        return await _http.GetFromJsonAsync<List<AlertRuleDto>>("/api/alerts/rules")
+            ?? throw new HttpRequestException("Empty alert rules API response.");
     }
 
     public async Task<(bool Success, string? Error)> CreateAlertRuleAsync(AlertRuleDto dto)
@@ -415,45 +235,10 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<AuditLogsPagedDto> GetAuditLogsAsync(string? search = null, int page = 1, int pageSize = 50)
     {
-        try
-        {
-            var q = $"/api/audit-logs?page={page}&pageSize={pageSize}";
-            if (!string.IsNullOrWhiteSpace(search)) q += $"&search={Uri.EscapeDataString(search)}";
-            var apiResult = await _http.GetFromJsonAsync<AuditLogsPagedDto>(q);
-            if (apiResult is { Items.Count: > 0 } || apiResult?.Total > 0) return apiResult;
-        }
-        catch { }
-
-        try
-        {
-            var all = await _firebase.GetAuditLogsAsync(200);
-            if (!string.IsNullOrEmpty(search))
-            {
-                all = all.Where(a =>
-                    (a.Action != null && a.Action.Contains(search, StringComparison.OrdinalIgnoreCase)) ||
-                    (a.Details != null && a.Details.Contains(search, StringComparison.OrdinalIgnoreCase)) ||
-                    (a.UserName != null && a.UserName.Contains(search, StringComparison.OrdinalIgnoreCase)) ||
-                    (a.UserEmail != null && a.UserEmail.Contains(search, StringComparison.OrdinalIgnoreCase))).ToList();
-            }
-
-            var total = all.Count;
-            var items = all.Skip((page - 1) * pageSize).Take(pageSize)
-                .Select(a => new AuditLogDto(
-                    a.Id,
-                    a.UserId,
-                    a.UserEmail,
-                    a.UserName,
-                    a.Action,
-                    a.EntityName,
-                    a.EntityId,
-                    a.Details,
-                    a.IpAddress,
-                    a.Timestamp
-                )).ToList();
-
-            return new AuditLogsPagedDto(total, page, pageSize, items);
-        }
-        catch { return new(0, page, pageSize, new()); }
+        var q = $"/api/audit-logs?page={page}&pageSize={pageSize}";
+        if (!string.IsNullOrWhiteSpace(search)) q += $"&search={Uri.EscapeDataString(search)}";
+        return await _http.GetFromJsonAsync<AuditLogsPagedDto>(q)
+            ?? throw new HttpRequestException("Empty audit logs API response.");
     }
 
     // ---- Sites (Multi-Plant) ----
@@ -461,26 +246,8 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<List<SiteDto>> GetSitesAsync()
     {
-        try
-        {
-            var apiSites = await _http.GetFromJsonAsync<List<SiteDto>>("/api/sites");
-            if (apiSites is { Count: > 0 }) return apiSites;
-        }
-        catch { }
-
-        try
-        {
-            var sites = await _firebase.GetSitesAsync();
-            return sites.Select(s => new SiteDto(
-                s.Id,
-                s.Code,
-                s.Name,
-                s.Location,
-                s.Description,
-                s.CreatedAt
-            )).ToList();
-        }
-        catch { return new(); }
+        return await _http.GetFromJsonAsync<List<SiteDto>>("/api/sites")
+            ?? throw new HttpRequestException("Empty sites API response.");
     }
 
     public async Task<(bool Success, string? Error)> CreateSiteAsync(SiteDto dto)
@@ -489,27 +256,11 @@ public class ScadaDemoTestApiClient : IDisposable
         {
             var res = await _http.PostAsJsonAsync("/api/sites", dto);
             if (res.IsSuccessStatusCode) return (true, null);
-            var err = await res.Content.ReadFromJsonAsync<ErrorPayload>();
-            return (false, err?.message ?? $"Create site failed ({res.StatusCode})");
+            var err = await ReadErrorMessageAsync(res);
+            return (false, err ?? $"Create site failed ({res.StatusCode})");
         }
-        catch
-        {
-            var site = new Site
-            {
-                Id = dto.Id != Guid.Empty ? dto.Id : Guid.NewGuid(),
-                Code = dto.Code,
-                Name = dto.Name,
-                Location = dto.Location,
-                Description = dto.Description,
-                CreatedAt = DateTime.UtcNow
-            };
-            var res = await _firebase.CreateSiteAsync(site);
-            if (res.Success)
-            {
-                _ = _firebase.LogAuditActionAsync("Site.Create", "Site", site.Id.ToString(), $"Created site {site.Name} ({site.Code})");
-            }
-            return res;
-        }
+        catch (HttpRequestException ex) when (IsAuthorizationFailure(ex)) { return (false, ex.Message); }
+        catch (Exception ex) { return (false, $"Sites API request failed: {ex.Message}"); }
     }
 
     // ---- Firmware OTA ----
@@ -521,52 +272,20 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<List<FirmwareReleaseDto>> GetFirmwareReleasesAsync()
     {
-        try
-        {
-            var list = await _firebase.GetFirmwareReleasesAsync();
-            return list.Select(f => new FirmwareReleaseDto(
-                f.Id,
-                f.Version,
-                f.Description,
-                f.HardwareTarget,
-                f.BinaryFileName,
-                f.FileSizeBytes,
-                f.ChecksumSha256,
-                f.IsActive,
-                f.CreatedAt,
-                f.ReleaseNotes
-            )).ToList();
-        }
-        catch { return new(); }
+        return await _http.GetFromJsonAsync<List<FirmwareReleaseDto>>("/api/firmware")
+            ?? throw new HttpRequestException("Empty firmware API response.");
     }
 
     public async Task<(bool Success, string? Error)> UploadFirmwareAsync(UploadFirmwareRequest req)
     {
-        var release = new FirmwareRelease
-        {
-            Id = Guid.NewGuid(),
-            Version = req.Version,
-            Description = req.Description,
-            HardwareTarget = req.HardwareTarget,
-            BinaryFileName = req.BinaryFileName,
-            FileSizeBytes = req.FileSizeBytes,
-            ChecksumSha256 = Guid.NewGuid().ToString("N"),
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow,
-            ReleaseNotes = req.ReleaseNotes
-        };
-        var res = await _firebase.CreateFirmwareReleaseAsync(release);
-        if (res.Success)
-        {
-            _ = _firebase.LogAuditActionAsync("Firmware.Upload", "FirmwareRelease", release.Id.ToString(), $"Uploaded firmware {req.Version} for {req.HardwareTarget}");
-        }
-        return res;
+        using var res = await _http.PostAsJsonAsync("/api/firmware", req);
+        return res.IsSuccessStatusCode ? (true, null) :
+            (false, await ReadErrorMessageAsync(res) ?? $"Firmware upload failed ({res.StatusCode}).");
     }
 
     public async Task<(bool Success, string? Error)> RolloutFirmwareAsync(RolloutRequest req)
     {
-        _ = _firebase.LogAuditActionAsync("Firmware.Rollout", "FirmwareRelease", req.ReleaseId.ToString(), $"Triggered OTA rollout to device {req.TargetDeviceExternalId}");
-        return (true, null);
+        return (false, "Firmware rollout is not supported by the API.");
     }
 
     // ---- Auth ----
@@ -579,7 +298,7 @@ public class ScadaDemoTestApiClient : IDisposable
     {
         try
         {
-            var response = await _http.PostAsJsonAsync("/api/auth/login", new { email, password, rememberMe });
+            using var response = await _http.PostAsJsonAsync("/api/auth/login", new { email, password, rememberMe });
             if (!response.IsSuccessStatusCode)
             {
                 var errPayload = await response.Content.ReadFromJsonAsync<ErrorPayload>();
@@ -606,14 +325,32 @@ public class ScadaDemoTestApiClient : IDisposable
         public string? error { get; set; }
     }
 
+    public async Task LogoutAsync(string accessToken, string refreshToken)
+    {
+        // Local sign-out must still complete when the API is offline.
+        try
+        {
+            using var response = await _http.PostAsJsonAsync("/api/auth/logout", new { accessToken, refreshToken });
+        }
+        catch (HttpRequestException) { }
+        catch (OperationCanceledException) { }
+    }
+
+    private static bool IsAuthorizationFailure(HttpRequestException exception) =>
+        exception.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden;
+
     private static async Task<string?> ReadErrorMessageAsync(HttpResponseMessage response)
     {
+        // Denials are terminal even when the API returns an empty/non-JSON body.
+        if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+            return $"API {(int)response.StatusCode} ({response.StatusCode}) — access denied.";
+
         try
         {
             var raw = await response.Content.ReadAsStringAsync();
             if (string.IsNullOrWhiteSpace(raw)) return null;
             var err = System.Text.Json.JsonSerializer.Deserialize<ErrorPayload>(raw, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            return err?.message ?? err?.error;
+            return err?.message ?? err?.error ?? raw;
         }
         catch { return null; }
     }
@@ -623,10 +360,11 @@ public class ScadaDemoTestApiClient : IDisposable
     public record GatewayDeviceDto(Guid Id, string ExternalId, string Name, string HardwareType,
         string? IpAddress, int Port, int BaudRate, string Parity, int StopBits, int TimeoutMs,
         int MaxSensorCapacity, int SensorCount, bool IsOnline, DateTime? LastSeenAt, DateTime? CreatedAt,
-        Guid? SiteId = null);
+        Guid? SiteId = null, string ProvisionedVia = "Norvi");
 
     public record CreateGatewayDeviceRequest(string Name, string HardwareType, string? IpAddress,
-        int? Port, int? BaudRate, string? Parity, int? StopBits, int? TimeoutMs, Guid? SiteId);
+        int? Port, int? BaudRate, string? Parity, int? StopBits, int? TimeoutMs, Guid? SiteId,
+        string? ProvisionedVia = null);
 
     public record SensorLibraryDto(string DriverKey, string SimpleName, string DisplayName,
         string Description, int DefaultSlaveAddress, int DefaultPollIntervalSeconds,
@@ -713,12 +451,8 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<List<GatewayDeviceDto>> GetGatewayDevicesAsync()
     {
-        try
-        {
-            var result = await _http.GetFromJsonAsync<List<GatewayDeviceDto>>("/api/devices");
-            return result ?? new();
-        }
-        catch { return new(); }
+        return await _http.GetFromJsonAsync<List<GatewayDeviceDto>>("/api/devices")
+            ?? throw new HttpRequestException("Empty devices API response.");
     }
 
     public async Task<(bool Success, GatewayDeviceDto? Data, string? Error)> CreateGatewayDeviceAsync(CreateGatewayDeviceRequest dto)
@@ -754,23 +488,15 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<List<SensorLibraryDto>> GetSensorLibrariesAsync()
     {
-        try
-        {
-            var result = await _http.GetFromJsonAsync<List<SensorLibraryDto>>("/api/sensors/libraries");
-            return result ?? new();
-        }
-        catch { return new(); }
+        return await _http.GetFromJsonAsync<List<SensorLibraryDto>>("/api/sensors/libraries")
+            ?? throw new HttpRequestException("Empty sensor libraries API response.");
     }
 
     public async Task<List<AttachedSensorDto>> GetSensorsAsync(Guid? deviceId = null)
     {
-        try
-        {
-            var url = deviceId is null ? "/api/sensors" : $"/api/sensors?deviceId={deviceId}";
-            var result = await _http.GetFromJsonAsync<List<AttachedSensorDto>>(url);
-            return result ?? new();
-        }
-        catch { return new(); }
+        var url = deviceId is null ? "/api/sensors" : $"/api/sensors?deviceId={deviceId}";
+        return await _http.GetFromJsonAsync<List<AttachedSensorDto>>(url)
+            ?? throw new HttpRequestException("Empty sensors API response.");
     }
 
     public async Task<(bool Success, AttachedSensorDto? Data, string? Error)> CreateSensorAsync(CreateSensorRequest dto)
@@ -822,37 +548,26 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<List<SensorReadingDto>> GetSensorTelemetryAsync(Guid id, int count = 50)
     {
-        try
-        {
-            var result = await _http.GetFromJsonAsync<List<SensorReadingDto>>($"/api/sensors/{id}/telemetry?count={count}");
-            return result ?? new();
-        }
-        catch { return new(); }
+        return await _http.GetFromJsonAsync<List<SensorReadingDto>>($"/api/sensors/{id}/telemetry?count={count}")
+            ?? throw new HttpRequestException("Empty telemetry API response.");
     }
 
     public async Task<List<SensorReadingDto>> GetSensorTelemetryRangeAsync(Guid id, DateTime fromLocal, DateTime toLocal, int limit = 2000)
     {
-        try
-        {
-            var from = Uri.EscapeDataString(fromLocal.ToUniversalTime().ToString("O"));
-            var to = Uri.EscapeDataString(toLocal.ToUniversalTime().ToString("O"));
-            var result = await _http.GetFromJsonAsync<List<SensorReadingDto>>($"/api/sensors/{id}/telemetry?count={limit}&from={from}&to={to}");
-            return result ?? new();
-        }
-        catch { return new(); }
+        var from = Uri.EscapeDataString(fromLocal.ToUniversalTime().ToString("O"));
+        var to = Uri.EscapeDataString(toLocal.ToUniversalTime().ToString("O"));
+        return await _http.GetFromJsonAsync<List<SensorReadingDto>>($"/api/sensors/{id}/telemetry?count={limit}&from={from}&to={to}")
+            ?? throw new HttpRequestException("Empty telemetry API response.");
     }
 
     public async Task<byte[]?> GetSensorTelemetryPdfAsync(Guid id, DateTime fromLocal, DateTime toLocal)
     {
-        try
-        {
-            var from = Uri.EscapeDataString(fromLocal.ToUniversalTime().ToString("O"));
-            var to = Uri.EscapeDataString(toLocal.ToUniversalTime().ToString("O"));
-            var response = await _http.GetAsync($"/api/sensors/{id}/telemetry/export-pdf?from={from}&to={to}");
-            if (!response.IsSuccessStatusCode) return null;
-            return await response.Content.ReadAsByteArrayAsync();
-        }
-        catch { return null; }
+        var from = Uri.EscapeDataString(fromLocal.ToUniversalTime().ToString("O"));
+        var to = Uri.EscapeDataString(toLocal.ToUniversalTime().ToString("O"));
+        using var response = await _http.GetAsync($"/api/sensors/{id}/telemetry/export-pdf?from={from}&to={to}");
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(await ReadErrorMessageAsync(response) ?? $"Telemetry export failed ({response.StatusCode}).");
+        return await response.Content.ReadAsByteArrayAsync();
     }
 
     public async Task<GatewayScanResultDto?> ScanGatewayBusAsync(
@@ -863,44 +578,22 @@ public class ScadaDemoTestApiClient : IDisposable
         int passes = 0,
         bool deepDuplicateCheck = true)
     {
-        try
-        {
-            var body = new
-            {
-                probeTimeoutMs,
-                startAddress,
-                endAddress,
-                passes,
-                deepDuplicateCheck
-            };
-            var response = await _scan.PostAsJsonAsync($"/api/devices/{deviceId}/scan", body);
-            var raw = await response.Content.ReadAsStringAsync();
-            if (string.IsNullOrWhiteSpace(raw)) return null;
-
-            try
-            {
-                var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                if (response.IsSuccessStatusCode)
-                {
-                    return System.Text.Json.JsonSerializer.Deserialize<GatewayScanResultDto>(raw, options);
-                }
-                var wrapper = System.Text.Json.JsonSerializer.Deserialize<ScanBusErrorDto>(raw, options);
-                return wrapper?.scan;
-            }
-            catch { return null; }
-        }
-        catch { return null; }
+        var body = new { probeTimeoutMs, startAddress, endAddress, passes, deepDuplicateCheck };
+        using var response = await _scan.PostAsJsonAsync($"/api/devices/{deviceId}/scan", body);
+        var raw = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(await ReadErrorMessageAsync(response) ?? $"Gateway scan failed ({response.StatusCode}).");
+        var result = System.Text.Json.JsonSerializer.Deserialize<GatewayScanResultDto>(raw,
+            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        return result ?? throw new HttpRequestException("Empty gateway scan API response.");
     }
 
     public record ReachabilityResultDto(bool reachable, bool online, int? latencyMs, string message);
 
     public async Task<ReachabilityResultDto?> CheckReachabilityAsync(Guid deviceId)
     {
-        try
-        {
-            return await _http.GetFromJsonAsync<ReachabilityResultDto>($"/api/devices/{deviceId}/reachability");
-        }
-        catch { return null; }
+        return await _http.GetFromJsonAsync<ReachabilityResultDto>($"/api/devices/{deviceId}/reachability")
+            ?? throw new HttpRequestException("Empty reachability API response.");
     }
 
     private sealed class ScanBusErrorDto
@@ -909,7 +602,7 @@ public class ScadaDemoTestApiClient : IDisposable
         public GatewayScanResultDto? scan { get; set; }
     }
 
-    // ---- Users (Fast Local API with fallback) ----
+    // ---- Users (API-only) ----
     public record UserDto(Guid Id, string FirstName, string LastName, string Email, string? PhoneNumber,
         string RoleName, bool IsHardcodedSuperAdmin, DateTime CreatedAt);
     public record CreateUserRequest(string FirstName, string LastName, string Email, string? PhoneNumber, string Password, string RoleName);
@@ -917,53 +610,22 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<List<UserDto>> GetUsersAsync()
     {
-        try
-        {
-            var apiUsers = await _http.GetFromJsonAsync<List<UserDto>>("/api/users");
-            if (apiUsers is { Count: > 0 }) return apiUsers;
-        }
-        catch { }
-
-        try
-        {
-            var users = await _firebase.GetUsersAsync();
-            var roles = await _firebase.GetRolesAsync();
-            var userRoles = await _firebase.GetUserRolesAsync();
-
-            return users.Select(u =>
-            {
-                Guid.TryParse(u.Id, out var uid);
-                var mapping = userRoles.FirstOrDefault(ur => ur.UserId == u.Id);
-                var role = roles.FirstOrDefault(r => r.Id == mapping?.RoleId);
-                var roleName = role?.Name ?? (u.IsHardcodedSuperAdmin ? "SuperAdmin" : "Operator");
-
-                return new UserDto(
-                    uid != Guid.Empty ? uid : Guid.NewGuid(),
-                    u.FirstName,
-                    u.LastName,
-                    u.Email,
-                    u.PhoneNumber,
-                    roleName,
-                    u.IsHardcodedSuperAdmin,
-                    u.CreatedAt
-                );
-            }).ToList();
-        }
-        catch { return new(); }
+        return await _http.GetFromJsonAsync<List<UserDto>>("/api/users")
+            ?? throw new HttpRequestException("Empty users API response.");
     }
 
     public async Task<(bool Success, string? Error)> CreateUserAsync(CreateUserRequest dto)
     {
         try
         {
-            var res = await _http.PostAsJsonAsync("/api/users", dto);
+            using var res = await _http.PostAsJsonAsync("/api/users", dto);
             if (res.IsSuccessStatusCode) return (true, null);
-            var err = await res.Content.ReadFromJsonAsync<ErrorPayload>();
-            return (false, err?.message ?? $"Failed ({res.StatusCode})");
+            var err = await ReadErrorMessageAsync(res);
+            return (false, err ?? $"Failed ({res.StatusCode})");
         }
-        catch
+        catch (Exception ex)
         {
-            return await _firebase.CreateUserAsync(dto.FirstName, dto.LastName, dto.Email, dto.PhoneNumber, dto.Password, dto.RoleName);
+            return (false, $"Users API request failed: {ex.Message}");
         }
     }
 
@@ -971,14 +633,14 @@ public class ScadaDemoTestApiClient : IDisposable
     {
         try
         {
-            var res = await _http.PutAsJsonAsync($"/api/users/{id}", dto);
+            using var res = await _http.PutAsJsonAsync($"/api/users/{id}", dto);
             if (res.IsSuccessStatusCode) return (true, null);
-            var err = await res.Content.ReadFromJsonAsync<ErrorPayload>();
-            return (false, err?.message ?? $"Failed ({res.StatusCode})");
+            var err = await ReadErrorMessageAsync(res);
+            return (false, err ?? $"Failed ({res.StatusCode})");
         }
-        catch
+        catch (Exception ex)
         {
-            return await _firebase.UpdateUserAsync(id.ToString(), dto.FirstName, dto.LastName, dto.PhoneNumber, dto.RoleName, dto.NewPassword);
+            return (false, $"Users API request failed: {ex.Message}");
         }
     }
 
@@ -986,18 +648,18 @@ public class ScadaDemoTestApiClient : IDisposable
     {
         try
         {
-            var res = await _http.DeleteAsync($"/api/users/{id}");
+            using var res = await _http.DeleteAsync($"/api/users/{id}");
             if (res.IsSuccessStatusCode) return (true, null);
-            var err = await res.Content.ReadFromJsonAsync<ErrorPayload>();
-            return (false, err?.message ?? $"Failed ({res.StatusCode})");
+            var err = await ReadErrorMessageAsync(res);
+            return (false, err ?? $"Failed ({res.StatusCode})");
         }
-        catch
+        catch (Exception ex)
         {
-            return await _firebase.DeleteUserAsync(id.ToString());
+            return (false, $"Users API request failed: {ex.Message}");
         }
     }
 
-    // ---- Roles / Permissions (Fast Local API with fallback) ----
+    // ---- Roles / Permissions (API-only) ----
     public record RoleDto(Guid Id, string Name, string? Description, bool IsSuperAdminRole, int UserCount, Dictionary<string, bool> Permissions);
     public record CreateRoleRequest(string Name, string? Description);
     public record UpdateRolePermissionsRequest(Dictionary<string, bool> Permissions);
@@ -1005,69 +667,28 @@ public class ScadaDemoTestApiClient : IDisposable
 
     public async Task<List<RoleDto>> GetRolesAsync()
     {
-        try
-        {
-            var apiRoles = await _http.GetFromJsonAsync<List<RoleDto>>("/api/roles");
-            if (apiRoles is { Count: > 0 }) return apiRoles;
-        }
-        catch { }
-
-        try
-        {
-            var roles = await _firebase.GetRolesAsync();
-            var userRoles = await _firebase.GetUserRolesAsync();
-            var perms = await _firebase.GetRolePermissionsAsync();
-
-            return roles.Select(r =>
-            {
-                Guid.TryParse(r.Id, out var rid);
-                bool isSuperAdmin = string.Equals(r.Name, "SuperAdmin", StringComparison.OrdinalIgnoreCase);
-                int userCount = userRoles.Count(ur => ur.RoleId == r.Id);
-
-                var rolePerms = perms
-                    .Where(p => p.RoleId == r.Id)
-                    .ToDictionary(p => p.TabKey, p => p.IsGranted);
-
-                return new RoleDto(
-                    rid != Guid.Empty ? rid : Guid.NewGuid(),
-                    r.Name,
-                    r.Description,
-                    isSuperAdmin,
-                    userCount,
-                    rolePerms
-                );
-            }).ToList();
-        }
-        catch { return new(); }
+        return await _http.GetFromJsonAsync<List<RoleDto>>("/api/roles")
+            ?? throw new HttpRequestException("Empty roles API response.");
     }
 
     public async Task<PermissionsCatalogDto> GetPermissionsCatalogAsync()
     {
-        try
-        {
-            var catalog = await _http.GetFromJsonAsync<PermissionsCatalogDto>("/api/roles/permissions-catalog");
-            if (catalog is not null) return catalog;
-        }
-        catch { }
-
-        return new PermissionsCatalogDto(
-            AppTabs.All.ToList(),
-            AppPermissions.All.ToList()
-        );
+        return await _http.GetFromJsonAsync<PermissionsCatalogDto>("/api/roles/permissions-catalog")
+            ?? throw new HttpRequestException("Empty permissions catalog API response.");
     }
 
     public async Task<(bool Success, string? Error)> CreateRoleAsync(CreateRoleRequest dto)
     {
         try
         {
-            var res = await _http.PostAsJsonAsync("/api/roles", dto);
+            using var res = await _http.PostAsJsonAsync("/api/roles", dto);
             if (res.IsSuccessStatusCode) return (true, null);
-            var err = await res.Content.ReadFromJsonAsync<ErrorPayload>();
-            return (false, err?.message ?? $"Failed ({res.StatusCode})");
+            var err = await ReadErrorMessageAsync(res);
+            return (false, err ?? $"Failed ({res.StatusCode})");
         }
-        catch
+        catch (Exception ex)
         {
-            return await _firebase.CreateRoleAsync(dto.Name, dto.Description);
+            return (false, $"Roles API request failed: {ex.Message}");
         }
     }
 
@@ -1075,14 +696,14 @@ public class ScadaDemoTestApiClient : IDisposable
     {
         try
         {
-            var res = await _http.PutAsJsonAsync($"/api/roles/{roleId}/permissions", new UpdateRolePermissionsRequest(permissions));
+            using var res = await _http.PutAsJsonAsync($"/api/roles/{roleId}/permissions", new UpdateRolePermissionsRequest(permissions));
             if (res.IsSuccessStatusCode) return (true, null);
-            var err = await res.Content.ReadFromJsonAsync<ErrorPayload>();
-            return (false, err?.message ?? $"Failed ({res.StatusCode})");
+            var err = await ReadErrorMessageAsync(res);
+            return (false, err ?? $"Failed ({res.StatusCode})");
         }
-        catch
+        catch (Exception ex)
         {
-            return await _firebase.UpdateRolePermissionsAsync(roleId.ToString(), permissions);
+            return (false, $"Roles API request failed: {ex.Message}");
         }
     }
 
@@ -1090,14 +711,14 @@ public class ScadaDemoTestApiClient : IDisposable
     {
         try
         {
-            var res = await _http.DeleteAsync($"/api/roles/{id}");
+            using var res = await _http.DeleteAsync($"/api/roles/{id}");
             if (res.IsSuccessStatusCode) return (true, null);
-            var err = await res.Content.ReadFromJsonAsync<ErrorPayload>();
-            return (false, err?.message ?? $"Failed ({res.StatusCode})");
+            var err = await ReadErrorMessageAsync(res);
+            return (false, err ?? $"Failed ({res.StatusCode})");
         }
-        catch
+        catch (Exception ex)
         {
-            return await _firebase.DeleteRoleAsync(id.ToString());
+            return (false, $"Roles API request failed: {ex.Message}");
         }
     }
 }

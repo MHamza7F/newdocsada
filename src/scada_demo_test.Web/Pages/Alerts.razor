@@ -26,6 +26,11 @@
     </div>
 }
 
+@if (LoadError is not null)
+{
+    <div class="report-error-box"><span>⚠️ @LoadError</span><button class="btn-sm-action-ack" @onclick="LoadDataAsync">Retry</button></div>
+}
+
 <!-- Summary Alarms Stats -->
 <div class="summary-metrics-cards" style="margin-bottom:24px;">
     <div class="stat-card">
@@ -463,6 +468,7 @@
 
     private string? ToastMessage = null;
     private bool ToastIsError = false;
+    private string? LoadError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -471,16 +477,27 @@
 
     private async Task LoadDataAsync()
     {
+        LoadError = null;
         try
         {
             Sensors = (await Api.GetSensorsAsync()).OrderBy(s => s.DeviceName).ThenBy(s => s.Name).ToList();
         }
-        catch
+        catch (Exception ex)
         {
             Sensors = new();
+            LoadError = $"Unable to load alert sensors: {ex.Message}";
         }
-        Incidents = await Api.GetAlertIncidentsAsync(50);
-        Rules = await Api.GetAlertRulesAsync();
+        try
+        {
+            Incidents = await Api.GetAlertIncidentsAsync(50);
+            Rules = await Api.GetAlertRulesAsync();
+        }
+        catch (Exception ex)
+        {
+            Incidents = new();
+            Rules = new();
+            LoadError ??= $"Unable to load alert data: {ex.Message}";
+        }
     }
 
     private async Task<bool> CheckPermissionAsync(string actionPermission)
@@ -544,7 +561,7 @@
         {
             Sensors = (await Api.GetSensorsAsync()).OrderBy(s => s.DeviceName).ThenBy(s => s.Name).ToList();
         }
-        catch { }
+        catch (Exception ex) { LoadError = $"Unable to refresh alert sensors: {ex.Message}"; }
 
         NewRuleTarget = "ALL";
         var first = AvailableMetrics.FirstOrDefault();

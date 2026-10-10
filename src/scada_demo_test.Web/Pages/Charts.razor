@@ -21,6 +21,11 @@
     </div>
 </div>
 
+@if (LoadError is not null)
+{
+    <div class="report-error-box"><span>⚠️ @LoadError</span><button class="btn-sm-action-ack" @onclick="LoadSensorsAsync">Retry</button></div>
+}
+
 <!-- Plant Snapshot KPI band (real live values only) -->
 @if (Sensors.Count > 0)
 {
@@ -206,6 +211,7 @@ else if (ActiveSubTab == "comparison")
 
     private System.Threading.Timer? _refreshTimer;
     private bool _disposed;
+    private string? LoadError;
     private DateTime _lastSensorRefresh = DateTime.MinValue;
 
     protected override async Task OnInitializedAsync()
@@ -215,16 +221,25 @@ else if (ActiveSubTab == "comparison")
 
     private async Task LoadSensorsAsync()
     {
-        var devices = await Api.GetGatewayDevicesAsync();
-        Sensors = new List<ScadaDemoTestApiClient.AttachedSensorDto>();
-        _deviceNames.Clear();
-        var all = await Task.WhenAll(devices.Select(async d =>
+        LoadError = null;
+        try
         {
-            var sensors = await Api.GetSensorsAsync(d.Id);
-            _deviceNames[d.Id.ToString()] = d.Name;
-            return sensors;
-        }));
-        foreach (var sensors in all) Sensors.AddRange(sensors);
+            var devices = await Api.GetGatewayDevicesAsync();
+            Sensors = new List<ScadaDemoTestApiClient.AttachedSensorDto>();
+            _deviceNames.Clear();
+            var all = await Task.WhenAll(devices.Select(async d =>
+            {
+                var sensors = await Api.GetSensorsAsync(d.Id);
+                _deviceNames[d.Id.ToString()] = d.Name;
+                return sensors;
+            }));
+            foreach (var sensors in all) Sensors.AddRange(sensors);
+        }
+        catch (Exception ex)
+        {
+            Sensors = new();
+            LoadError = $"Unable to load chart sensors: {ex.Message}";
+        }
 
         if (CompareAId == Guid.Empty && Sensors.Count > 0) CompareAId = Sensors[0].Id;
         if (CompareBId == Guid.Empty && Sensors.Count > 1) CompareBId = Sensors[1].Id;

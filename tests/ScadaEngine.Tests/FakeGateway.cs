@@ -12,7 +12,7 @@ internal sealed class FakeGateway : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly ConcurrentBag<Task> _clients = new();
     private readonly Task _accept;
-    private readonly Func<byte[], byte[]?> _reply;
+    private Func<byte[], byte[]?> _reply;
     public ConcurrentBag<byte[]> Requests { get; } = new();
     public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
 
@@ -23,15 +23,50 @@ internal sealed class FakeGateway : IAsyncDisposable
         _accept = AcceptAsync();
     }
 
-    public FakeGateway(params RawScanResponse[] meters) : this(request =>
+    /// <summary>
+    /// Overrides the reply for a specific (slave, functionCode, startRegister) combination.
+    /// Used for tests that need to simulate a meter responding to a cross-FC probe.
+    /// </summary>
+    public void OverrideReply(byte slave, byte functionCode, ushort startRegister, byte[] payload)
     {
-        var matching = meters.Where(m => m.SlaveId == request[6]).ToArray();
-        var start = BinaryPrimitives.ReadUInt16BigEndian(request.AsSpan(8));
-        var quantity = BinaryPrimitives.ReadUInt16BigEndian(request.AsSpan(10));
-        var sample = matching.SelectMany(m => m.Evidence).FirstOrDefault(e =>
-            e.Window.FunctionCode == request[7] && e.Window.StartRegister == start && e.Window.RegisterQuantity == quantity);
-        return sample is null ? ExceptionFrame(request, matching.Length == 0 ? (byte)11 : (byte)2) : DataFrame(request, sample.Payload);
-    }) { }
+        var original = _reply;
+        _reply = request =>
+        {
+            if (request[6] == slave && request[7] == functionCode)
+            {
+                var start = BinaryPrimitives.ReadUInt16BigEndian(request.AsSpan(8));
+                if (start == startRegister)
+                    return DataFrame(request, payload);
+            }
+            return original(request);
+        };
+    }
+
+    public FakeGateway(params RawScanResponse[] meters) : this(MeterReply(meters)) { }
+
+    /// <summary>
+    /// Models a real RS-485 segment: EVERY meter wired to the probed Slave ID answers
+    /// the request, so two meters on one ID produce two frames (the bridge forwards
+    /// both) while a single meter produces exactly one.
+    /// </summary>
+    public static Func<byte[], byte[]?> MeterReply(params RawScanResponse[] meters)
+    {
+        return request =>
+        {
+            var slaveMatches = meters.Where(m => m.SlaveId == request[6]).ToArray();
+            var start = BinaryPrimitives.ReadUInt16BigEndian(request.AsSpan(8));
+            var quantity = BinaryPrimitives.ReadUInt16BigEndian(request.AsSpan(10));
+            var frames = slaveMatches
+                .Select(m => m.Evidence.FirstOrDefault(e =>
+                    e.Window.FunctionCode == request[7] && e.Window.StartRegister == start &&
+                    e.Window.RegisterQuantity == quantity))
+                .Where(sample => sample is not null)
+                .Select(sample => DataFrame(request, sample!.Payload))
+                .ToList();
+            if (frames.Count > 0) return frames.SelectMany(f => f).ToArray();
+            return ExceptionFrame(request, slaveMatches.Length == 0 ? (byte)11 : (byte)2);
+        };
+    }
 
     public static byte[] ExceptionFrame(byte[] request, byte code) =>
         new[] { request[0], request[1], (byte)0, (byte)0, (byte)0, (byte)3, request[6], (byte)(request[7] | 128), code };

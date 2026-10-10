@@ -5,15 +5,19 @@
 @inject ScadaDemoTestApiClient Api
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject Microsoft.AspNetCore.Antiforgery.AntiforgeryTokenSet AccountFormToken
 
 <header class="topbar">
     <div class="topbar-left">
-        <button class="icon-btn" @onclick="OnToggleSidebar" title="Toggle sidebar">
+        <button type="button" class="icon-btn sidebar-desktop-toggle" @onclick="OnToggleSidebar" title="@(IsCollapsed ? "Expand navigation" : "Collapse navigation")" aria-label="@(IsCollapsed ? "Expand navigation" : "Collapse navigation")" aria-controls="primary-sidebar" aria-expanded="@((!IsCollapsed).ToString().ToLowerInvariant())">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="3" y1="12" x2="21" y2="12"></line>
                 <line x1="3" y1="6" x2="21" y2="6"></line>
                 <line x1="3" y1="18" x2="21" y2="18"></line>
             </svg>
+        </button>
+        <button type="button" class="icon-btn sidebar-mobile-toggle" @onclick="OnToggleMobile" title="Open navigation" aria-label="Open navigation" aria-controls="primary-sidebar" aria-expanded="@IsMobileOpen.ToString().ToLowerInvariant()">
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18" /></svg>
         </button>
 
         <div class="search-box-wrapper" @onfocusout="CloseSearchDelayed">
@@ -24,11 +28,11 @@
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
                 </span>
-                <input type="text" placeholder="Quick search meters, devices, tanks, alerts..."
+                <input type="text" aria-label="Search meters, devices, tanks and alerts" placeholder="Quick search meters, devices, tanks, alerts..."
                        @bind="SearchQuery" @bind:event="oninput" @onkeydown="HandleSearchKey" @onfocus="() => IsSearchOpen = true" />
                 @if (!string.IsNullOrEmpty(SearchQuery))
                 {
-                    <button type="button" class="toast-close" style="font-size:12px;" @onclick="ClearSearch">✕</button>
+                    <button type="button" class="toast-close" aria-label="Clear search" style="font-size:12px;" @onclick="ClearSearch">✕</button>
                 }
             </div>
 
@@ -95,7 +99,7 @@
 
         @* Dark / light theme toggle. Reads + persists the choice in localStorage so
            it survives a page reload, and honours the OS default on first visit. *@
-        <button class="theme-toggle" title="Toggle dark theme" @onclick="ToggleThemeAsync">
+        <button type="button" class="theme-toggle" title="Toggle dark theme" aria-label="Toggle dark theme" aria-pressed="@IsDarkTheme.ToString().ToLowerInvariant()" @onclick="ToggleThemeAsync">
             @if (IsDarkTheme)
             {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -112,8 +116,8 @@
         </button>
 
         <!-- Alerts Bell with Dropdown -->
-        <div class="notifications-wrapper" tabindex="0" @onclick="ToggleAlertsMenu" @onfocusout="CloseAlertsDelayed">
-            <button class="icon-btn bell-btn" title="Alerts &amp; Incidents">
+        <div class="notifications-wrapper" @onfocusin="() => _alertsFocused = true" @onfocusout="CloseAlertsDelayed" @onkeydown="HandleMenuKey">
+            <button type="button" class="icon-btn bell-btn" title="Alerts &amp; Incidents" aria-label="Alerts and incidents" aria-expanded="@IsAlertsOpen.ToString().ToLowerInvariant()" @onclick="ToggleAlertsMenu">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                     <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
@@ -156,13 +160,15 @@
         </div>
 
         <!-- User Menu -->
-        <div class="user-menu" tabindex="0" @onclick="ToggleUserMenu" @onfocusout="CloseUserMenuDelayed">
-            <div class="avatar">@Initials</div>
-            <div class="user-info">
-                <div class="user-name">@DisplayName</div>
-                <div class="user-role-badge">@RoleName</div>
-            </div>
-            <span class="chevron">@(IsUserMenuOpen ? "▲" : "▼")</span>
+        <div class="user-menu" @onfocusin="() => _userMenuFocused = true" @onfocusout="CloseUserMenuDelayed" @onkeydown="HandleMenuKey">
+            <button type="button" class="user-menu-trigger" aria-label="User options" aria-expanded="@IsUserMenuOpen.ToString().ToLowerInvariant()" @onclick="ToggleUserMenu">
+                <span class="avatar">@Initials</span>
+                <span class="user-info">
+                    <span class="user-name">@DisplayName</span>
+                    <span class="user-role-badge">@RoleName</span>
+                </span>
+                <span class="chevron" aria-hidden="true">@(IsUserMenuOpen ? "▲" : "▼")</span>
+            </button>
 
             @if (IsUserMenuOpen)
             {
@@ -175,7 +181,10 @@
                     <a class="dropdown-item" href="/settings">⚙️ System Diagnostics</a>
                     <a class="dropdown-item" href="/audit-logs">📜 Audit Logs</a>
                     <div class="dropdown-divider"></div>
-                    <a class="dropdown-item logout" href="/account/logout">⏻ Sign Out</a>
+                    <form method="post" action="/account/logout">
+                        <input type="hidden" name="@AccountFormToken.FormFieldName" value="@AccountFormToken.RequestToken" />
+                        <button type="submit" class="dropdown-item logout" style="width:100%; border:0; background:transparent; text-align:left; font:inherit; cursor:pointer;">⏻ Sign Out</button>
+                    </form>
                 </div>
             }
         </div>
@@ -184,10 +193,15 @@
 
 @code {
     [Parameter] public EventCallback OnToggleSidebar { get; set; }
+    [Parameter] public EventCallback OnToggleMobile { get; set; }
+    [Parameter] public bool IsCollapsed { get; set; }
+    [Parameter] public bool IsMobileOpen { get; set; }
 
     private bool IsUserMenuOpen = false;
     private bool IsAlertsOpen = false;
     private bool IsSearchOpen = false;
+    private bool _userMenuFocused;
+    private bool _alertsFocused;
     private DateTime _now = DateTime.Now;
     private System.Threading.Timer? _timer;
     private bool _disposed;
@@ -267,16 +281,27 @@ private bool IsDarkTheme = false;
 
     private async Task CloseUserMenuDelayed()
     {
+        _userMenuFocused = false;
         await Task.Delay(200);
+        if (_disposed || _userMenuFocused) return;
         IsUserMenuOpen = false;
         StateHasChanged();
     }
 
     private async Task CloseAlertsDelayed()
     {
+        _alertsFocused = false;
         await Task.Delay(200);
+        if (_disposed || _alertsFocused) return;
         IsAlertsOpen = false;
         StateHasChanged();
+    }
+
+    private void HandleMenuKey(KeyboardEventArgs e)
+    {
+        if (e.Key != "Escape") return;
+        IsUserMenuOpen = false;
+        IsAlertsOpen = false;
     }
 
     private async Task CloseSearchDelayed()

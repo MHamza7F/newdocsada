@@ -9,6 +9,11 @@
     <p class="page-subtitle">Cumulative utility volume totals across all connected flowmeters — one row per added sensor</p>
 </div>
 
+@if (LoadError is not null)
+{
+    <div class="report-error-box"><span>⚠️ @LoadError</span><button class="btn-sm-action-ack" @onclick="ConnectAsync">Retry</button></div>
+}
+
 @if (State.Meters.Count > 0)
 {
     <div class="kpi-strip">
@@ -129,11 +134,19 @@
     }
 
     private bool _disposed;
+    private string? LoadError;
 
     protected override async Task OnInitializedAsync()
     {
         State.OnChange += HandleChange;
-        await State.EnsureConnectedAsync();
+        await ConnectAsync();
+    }
+
+    private async Task ConnectAsync()
+    {
+        LoadError = null;
+        try { await State.EnsureConnectedAsync(); }
+        catch (Exception ex) { LoadError = $"Unable to connect to live telemetry: {ex.Message}"; }
     }
 
     private void HandleChange()

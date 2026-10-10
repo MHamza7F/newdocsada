@@ -1,108 +1,119 @@
+using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Components.Authorization;
 
 namespace scada_demo_test.Web.Services;
 
-// Attached to the ScadaDemoTestApiClient's HttpClient pipeline (see Program.cs).
-// Reads the signed-in user's role and JWT access token off the current circuit's
-// AuthenticationStateProvider or HttpContext (with fallback to the latest active
-// session token for iframe environments) and forwards them to scada_demo_test.API.
+// Each client resolves its own circuit identity; tokens live in an isolated server session.
 public class PermissionForwardingHandler : DelegatingHandler
 {
-    public static string? FallbackAccessToken { get; set; }
-    public static string? FallbackRole { get; set; }
-    public static ClaimsPrincipal? FallbackPrincipal { get; set; }
-
     private readonly IHttpContextAccessor _accessor;
     private readonly IServiceProvider _serviceProvider;
+    private readonly WebAuthSessionStore _sessions;
 
-    public PermissionForwardingHandler(IHttpContextAccessor accessor, IServiceProvider serviceProvider)
+    public PermissionForwardingHandler(IHttpContextAccessor accessor, IServiceProvider serviceProvider,
+        WebAuthSessionStore sessions)
     {
         _accessor = accessor;
         _serviceProvider = serviceProvider;
+        _sessions = sessions;
         InnerHandler = new HttpClientHandler { AllowAutoRedirect = false };
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        string? role = null;
-        string? token = null;
-
         var user = _accessor.HttpContext?.User;
-        if (user != null && user.Identity?.IsAuthenticated == true)
+        // Prefer the circuit identity when available; HttpContext may be from the initial handshake.
+        try
         {
-            role = user.FindFirstValue(ClaimTypes.Role);
-            token = user.FindFirstValue("access_token");
+            var provider = _serviceProvider.GetService<AuthenticationStateProvider>();
+            if (provider != null) user = (await provider.GetAuthenticationStateAsync()).User;
         }
+        catch (InvalidOperationException) { /* No active Blazor circuit during an HTTP endpoint. */ }
 
-        if (string.IsNullOrEmpty(token))
-        {
-            try
-            {
-                // Resolve directly from the circuit's IServiceProvider (never CreateScope,
-                // which would create an uninitialized AuthenticationStateProvider).
-                var authStateProvider = _serviceProvider.GetService<AuthenticationStateProvider>();
-                if (authStateProvider != null)
-                {
-                    var authState = await authStateProvider.GetAuthenticationStateAsync();
-                    if (authState.User.Identity?.IsAuthenticated == true)
-                    {
-                        role ??= authState.User.FindFirstValue(ClaimTypes.Role);
-                        token ??= authState.User.FindFirstValue("access_token");
-                    }
-                }
-            }
-            catch
-            {
-                // Circuit not yet initialized; fall back below.
-            }
-        }
-
-        role ??= FallbackRole;
-        token ??= FallbackAccessToken;
-
-        if (!string.IsNullOrEmpty(role))
-        {
-            request.Headers.Remove("X-Requesting-Role");
-            request.Headers.Add("X-Requesting-Role", role);
-        }
-
-        if (!string.IsNullOrEmpty(token) && request.Headers.Authorization == null)
-        {
+        var session = _sessions.Find(user);
+        request.Headers.Remove("X-Requesting-Role");
+        var path = request.RequestUri?.AbsolutePath;
+        var isAuthRequest = string.Equals(path, "/api/auth/login", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "/api/auth/refresh", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "/api/auth/logout", StringComparison.OrdinalIgnoreCase);
+        var token = session?.Tokens.AccessToken;
+        var ownsAuthorization = request.Headers.Authorization == null && !isAuthRequest && session != null;
+        if (ownsAuthorization)
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        }
 
         try
         {
-            return await base.SendAsync(request, cancellationToken);
-        }
-        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
-        {
-            // Circuit or caller explicitly cancelled request (e.g. browser refreshed or navigated)
-            return new HttpResponseMessage((System.Net.HttpStatusCode)499)
+            // Buffer before the first send so a single retry uses a new request, even for JSON writes.
+            var body = ownsAuthorization && request.Content != null
+                ? await request.Content.ReadAsByteArrayAsync(cancellationToken) : null;
+            var response = await base.SendAsync(request, cancellationToken);
+            if (response.StatusCode != HttpStatusCode.Unauthorized || !ownsAuthorization || session == null)
+                return response;
+
+            await session.Gate.WaitAsync(cancellationToken);
+            try
             {
-                RequestMessage = request,
-                Content = new StringContent($"{{\"error\":\"Request was canceled by the client: {ex.Message}\"}}", System.Text.Encoding.UTF8, "application/json")
-            };
-        }
-        catch (OperationCanceledException ex)
-        {
-            // Request timed out (API on port 5080 did not answer within timeout)
-            return new HttpResponseMessage(System.Net.HttpStatusCode.GatewayTimeout)
+                if (session.Revoked || session.Tokens.RefreshTokenExpiry <= DateTime.UtcNow) return response;
+                // Another request in this session may already have refreshed while we waited.
+                if (session.Tokens.AccessToken == token)
+                {
+                    using var refresh = new HttpRequestMessage(HttpMethod.Post, new Uri(request.RequestUri!, "/api/auth/refresh"))
+                    {
+                        Content = JsonContent.Create(new { accessToken = token, refreshToken = session.Tokens.RefreshToken })
+                    };
+                    using var refreshed = await base.SendAsync(refresh, cancellationToken);
+                    if (!refreshed.IsSuccessStatusCode)
+                    {
+                        if (refreshed.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.BadRequest)
+                            session.Revoked = true;
+                        return response;
+                    }
+                    ScadaDemoTestApiClient.LoginResponse? data;
+                    try { data = await refreshed.Content.ReadFromJsonAsync<ScadaDemoTestApiClient.LoginResponse>(cancellationToken); }
+                    catch (System.Text.Json.JsonException) { return response; }
+                    if (data == null || data.UserId != session.Tokens.UserId || string.IsNullOrWhiteSpace(data.AccessToken) ||
+                        string.IsNullOrWhiteSpace(data.RefreshToken)) return response;
+                    session.Tokens = data;
+                }
+            }
+            finally { session.Gate.Release(); }
+
+            using var retry = new HttpRequestMessage(request.Method, request.RequestUri)
             {
-                RequestMessage = request,
-                Content = new StringContent($"{{\"error\":\"API request timed out (verify scada_demo_test.API is running on port 5080): {ex.Message}\"}}", System.Text.Encoding.UTF8, "application/json")
+                Version = request.Version,
+                VersionPolicy = request.VersionPolicy
             };
-        }
-        catch (HttpRequestException ex)
-        {
-            // API connection refused (port 5080 offline)
-            return new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable)
+            foreach (var header in request.Headers) retry.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            foreach (var option in request.Options) retry.Options.Set(new HttpRequestOptionsKey<object?>(option.Key), option.Value);
+            if (body != null)
             {
-                RequestMessage = request,
-                Content = new StringContent($"{{\"error\":\"API unreachable ({ex.Message}). Start scada_demo_test.API on port 5080.\",\"status\":503}}", System.Text.Encoding.UTF8, "application/json")
-            };
+                retry.Content = new ByteArrayContent(body);
+                foreach (var header in request.Content!.Headers) retry.Content.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+            retry.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.Tokens.AccessToken);
+            response.Dispose();
+            return await base.SendAsync(retry, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw; // Preserve cancellation instead of presenting it as a server response.
+        }
+        catch (OperationCanceledException)
+        {
+            return Error(request, HttpStatusCode.GatewayTimeout, "API request timed out.");
+        }
+        catch (HttpRequestException)
+        {
+            return Error(request, HttpStatusCode.ServiceUnavailable, "API is unavailable. Please try again.");
         }
     }
+
+    private static HttpResponseMessage Error(HttpRequestMessage request, HttpStatusCode status, string message) => new(status)
+    {
+        RequestMessage = request,
+        Content = JsonContent.Create(new { error = message })
+    };
 }

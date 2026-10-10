@@ -25,9 +25,31 @@
     </div>
 }
 
+@if (SitesLoadError is not null)
+{
+    <div class="scada-toast error" role="alert" style="margin-bottom:18px;">
+        <span>@SitesLoadError</span>
+        <button class="btn-sm-action-ack" @onclick="LoadSitesAsync">Retry</button>
+    </div>
+}
+
 <div class="site-cards-grid">
-    @foreach (var site in Sites)
+    @if (!SitesLoaded)
     {
+        <div class="text-center text-muted" style="padding:24px;">Loading plant facilities...</div>
+    }
+    else if (SitesLoadError is not null)
+    {
+        <div class="text-center text-muted" style="padding:24px;">Plant facilities are unavailable until the load succeeds.</div>
+    }
+    else if (Sites.Count == 0)
+    {
+        <div class="text-center text-muted" style="padding:24px;">No plant facilities are registered.</div>
+    }
+    else
+    {
+        @foreach (var site in Sites)
+        {
         <div class="site-card glass-card @(SelectedSiteId == site.Id ? "active-site-card" : "")" @onclick="() => SelectSite(site.Id)">
             <div class="site-card-top">
                 <div>
@@ -59,8 +81,17 @@
                 <span class="view-telemetry-btn">@(SelectedSiteId == site.Id ? "✓ Currently Active Facility" : "Select Plant →")</span>
             </div>
         </div>
+        }
     }
 </div>
+
+@if (RelatedDataLoadError is not null && SitesLoadError is null)
+{
+    <div class="scada-toast error" role="alert" style="margin-top:18px;">
+        <span>@RelatedDataLoadError Site metrics may be incomplete.</span>
+        <button class="btn-sm-action-ack" @onclick="LoadSitesAsync">Retry</button>
+    </div>
+}
 
 <!-- ADD PLANT FACILITY MODAL -->
 @if (IsAddModalOpen)
@@ -117,6 +148,9 @@
 
     private string? ToastMessage = null;
     private bool ToastIsError = false;
+    private bool SitesLoaded;
+    private string? SitesLoadError;
+    private string? RelatedDataLoadError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -125,10 +159,38 @@
 
     private async Task LoadSitesAsync()
     {
-        Sites = await Api.GetSitesAsync();
-        Gateways = await Api.GetGatewayDevicesAsync();
-        AllSensors = await Api.GetSensorsAsync();
-        if (Sites.Count > 0 && !SelectedSiteId.HasValue) SelectedSiteId = Sites[0].Id;
+        SitesLoaded = false;
+        SitesLoadError = null;
+        RelatedDataLoadError = null;
+        try
+        {
+            Sites = await Api.GetSitesAsync();
+            SitesLoaded = true;
+            if (Sites.Count > 0 && (!SelectedSiteId.HasValue || Sites.All(s => s.Id != SelectedSiteId))) SelectedSiteId = Sites[0].Id;
+            else if (Sites.Count == 0) SelectedSiteId = null;
+        }
+        catch (Exception ex)
+        {
+            Sites = new();
+            Gateways = new();
+            AllSensors = new();
+            SelectedSiteId = null;
+            SitesLoadError = GetLoadError("plant facilities", ex);
+            SitesLoaded = true;
+            return;
+        }
+
+        try
+        {
+            Gateways = await Api.GetGatewayDevicesAsync();
+            AllSensors = await Api.GetSensorsAsync();
+        }
+        catch
+        {
+            Gateways = new();
+            AllSensors = new();
+            RelatedDataLoadError = "Unable to load gateway and sensor metrics.";
+        }
     }
 
     private int GetGatewayCount(Guid siteId) => Gateways.Count(g => g.SiteId == siteId);
@@ -151,7 +213,7 @@
         if (user.HasClaim("IsSuperAdmin", "true") || user.IsInRole("SuperAdmin"))
             return true;
 
-        if (user.HasClaim("perm", actionPermission) || user.HasClaim("perm", "MultiSite"))
+        if (user.HasClaim("perm", actionPermission))
             return true;
 
         return false;
@@ -174,6 +236,12 @@
 
     private async Task SaveSiteAsync()
     {
+        if (!await CheckPermissionAsync("Sites.Manage"))
+        {
+            ShowToast("Access Denied: You do not have permission to manage plant facilities.", isError: true);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(FormCode) || string.IsNullOrWhiteSpace(FormName) || string.IsNullOrWhiteSpace(FormLocation))
         {
             ShowToast("Please enter site code, name, and location.", isError: true);
@@ -212,5 +280,13 @@
         ToastMessage = msg;
         ToastIsError = isError;
         StateHasChanged();
+    }
+
+    private static string GetLoadError(string resource, Exception ex)
+    {
+        var denied = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized };
+        return denied
+            ? $"You do not have permission to view {resource}. Retry after your permissions are updated."
+            : $"Unable to load {resource}. Check the connection and retry.";
     }
 }

@@ -3,38 +3,35 @@ namespace scada_demo_test.Domain.Drivers;
 /// <summary>
 /// Selec RI-F200-C 3-Phase Power/Energy Meter
 /// ------------------------------------------
-/// Function Code 0x04 (Read Input Registers), IEEE-754 float32, LowWordFirst ("FLOAT REVERSE WORD").
-///   Window 0: start 42, qty 2 -> Total Active Power (kW)
-///   Window 1: start 58, qty 2 -> Active Energy Totalizer (kWh)
-///   CorroborationWindow: start 64, qty 10 (inside documented 74-register core block)
+/// Function Code 0x03 (Read Holding Registers), IEEE-754 float32, LowWordFirst ("FLOAT REVERSE WORD").
+///   Window 0: start 42 (0x2A), qty 2 -> Total Active Power (kW) @ 30042
+///   Window 1: start 58 (0x3A), qty 2 -> Active Energy Totalizer (kWh) @ 30058
+///   CorroborationWindow: start 64 (0x40), qty 2 -> kW Max @ 30064
+///   DisproofWindow: start 684 (0x2AC) -> Serial Number
 /// </summary>
 public class SelecPowerMeterDriver : ISensorDriver
 {
     private static readonly IReadOnlyList<SensorReadWindow> Windows = new[]
     {
-        new SensorReadWindow(0x04, 42, 2), // Total active power (kW)
-        new SensorReadWindow(0x04, 58, 2)  // Active energy totalizer (kWh)
+        new SensorReadWindow(0x04, 42, 2),  // Total Active Power (kW) @ 30042
+        new SensorReadWindow(0x04, 58, 2)   // Total Active Energy (kWh) @ 30058
     };
 
-    private static readonly SensorReadWindow ProofWindow = new(0x04, 64, 2);
+    private static readonly SensorReadWindow ProofWindow = new(0x04, 64, 2); // kW Max @ 30064
 
-    // Identity/disproof: the meter's serial number (documented @0x2AC in the
-    // register map). Every programmed meter has a non-zero serial; an echo /
-    // zero-filler returns zeros for everything it serves. Verified live on the
-    // real RI-F200-C: FC04@0x2AC -> 006E7E19 (non-zero), while the gateway's
-    // internal filler returns 00000000 at the same address.
+    // Identity/disproof: the meter's serial number @ 30684 (0x2AC)
     private static readonly SensorReadWindow DisproofSerialWindow = new(0x04, 0x02AC, 2);
 
     public string DriverKey => "SELEC_POWER_METER";
     public string SimpleName => "selec_power";
     public string DisplayName => "Selec RI-F200-C 3-Phase Power/Energy Meter";
-    public string Description => "Three-phase power & energy analyzer (FC04 input registers 42/58, low-word-first float32)";
+    public string Description => "Three-phase power & energy analyzer (FC03 holding registers 42/58, low-word-first float32)";
 
     public int DefaultSlaveAddress => 5;
     public int DefaultPollIntervalSeconds => 5;
     public ushort StartRegister => 42;
     public ushort RegisterQuantity => 2;
-    public byte FunctionCode => 0x04;
+    public byte FunctionCode => 0x04; // FC4 = Read Input Registers
 
     public string UnitPrimary => "kW";
     public string UnitSecondary => "kWh";

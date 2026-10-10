@@ -57,6 +57,25 @@ public class LiveTelemetryState : IAsyncDisposable
     }
 
     public Dictionary<string, MeterState> Meters { get; } = new();
+    private readonly object _meterLock = new();
+
+    // Detached copies let UI render safely while SignalR updates a sensor.
+    public MeterState? GetMeterSnapshot(string key)
+    {
+        lock (_meterLock)
+        {
+            if (!Meters.TryGetValue(key, out var m)) return null;
+            return new MeterState
+            {
+                DeviceExternalId = m.DeviceExternalId, DeviceName = m.DeviceName,
+                SensorExternalId = m.SensorExternalId, SensorName = m.SensorName,
+                FlowRate = m.FlowRate, FlowUnit = m.FlowUnit,
+                Totalizer = m.Totalizer, TotalizerUnit = m.TotalizerUnit,
+                IsOnline = m.IsOnline, LastSeen = m.LastSeen,
+                Values = new(m.Values)
+            };
+        }
+    }
     public bool IsConnected { get; private set; }
     public string ConnectionStatus { get; private set; } = "Connecting...";
 
@@ -78,6 +97,8 @@ public class LiveTelemetryState : IAsyncDisposable
 
     private void HandleBusReading(string deviceExternalId, string deviceName, string metric, double value, string? unit, bool isOnline)
     {
+        lock (_meterLock)
+        {
         if (!Meters.TryGetValue(deviceExternalId, out var meter))
         {
             meter = new MeterState { DeviceExternalId = deviceExternalId, DeviceName = deviceName };
@@ -86,6 +107,7 @@ public class LiveTelemetryState : IAsyncDisposable
 
         ApplyReading(meter, metric, value, unit, isOnline);
         PruneStaleValues(meter);
+        }
     }
 
     private static void PruneStaleValues(MeterState meter)
@@ -105,9 +127,12 @@ public class LiveTelemetryState : IAsyncDisposable
     // InstantaneousFlowRate/AccumulatedTotalizer for the flowmeters) via the API
     // SignalR hub - keyed on the sensor id so a gateway with several sensors
     // paints several cards, never one merged gateway card.
-    private static void ApplyReading(MeterState meter, string metric, double value, string? unit, bool isOnline)
+    private static void ApplyReading(MeterState meter, string metric, double value, string? unit, bool isOnline, DateTime? timestamp = null)
     {
-        meter.Values[metric] = (value, unit, DateTime.UtcNow);
+        var seen = timestamp.HasValue ? DateTime.SpecifyKind(timestamp.Value, DateTimeKind.Utc) : DateTime.UtcNow;
+        if (seen > DateTime.UtcNow.AddSeconds(5) || !double.IsFinite(value)) return;
+        if (meter.Values.TryGetValue(metric, out var previous) && previous.Seen > seen) return;
+        meter.Values[metric] = (value, unit, seen);
 
         // Summary/Charts still consume the device-level flow convenience fields.
         if (metric is "InstantaneousFlowRate" or "FlowRate" or "Flowrate" or "Flow")
@@ -116,7 +141,7 @@ public class LiveTelemetryState : IAsyncDisposable
         { meter.Totalizer = value; meter.TotalizerUnit = unit ?? string.Empty; }
 
         meter.IsOnline = isOnline;
-        meter.LastSeen = DateTime.UtcNow;
+        if (seen > meter.LastSeen) meter.LastSeen = seen;
     }
 
     // Safe to call from every page's OnInitializedAsync - only connects once
@@ -142,6 +167,8 @@ public class LiveTelemetryState : IAsyncDisposable
 
         _hubConnection.On<LiveReading>("ReceiveReading", reading =>
         {
+            lock (_meterLock)
+            {
             // One card per sensor; a legacy/plain device broadcast (no sensor id)
             // falls back to the gateway as the card key.
             var key = string.IsNullOrEmpty(reading.SensorExternalId)
@@ -162,9 +189,10 @@ public class LiveTelemetryState : IAsyncDisposable
                 Meters[key] = meter;
             }
 
-            ApplyReading(meter, reading.Metric, reading.Value, reading.Unit, reading.IsOnline);
+            ApplyReading(meter, reading.Metric, reading.Value, reading.Unit, reading.IsOnline, reading.Timestamp);
             meter.SensorName = string.IsNullOrEmpty(meter.SensorName) ? reading.DeviceName : meter.SensorName;
             PruneStaleValues(meter);
+            }
 
             OnChange?.Invoke();
         });

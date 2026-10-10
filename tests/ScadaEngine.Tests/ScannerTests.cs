@@ -54,7 +54,7 @@ public class ScannerTests
         var result = await new ModbusScanner().ScanAsync(Request(gateway, 1, 247, new[] { 117 }));
         Assert.Equal(246, result.SlavesScanned);
         Assert.Equal(new[] { 1, 247 }, result.Found.Select(f => f.SlaveAddress));
-        Assert.Equal(117, Assert.Single(result.AlreadyInSystemSensors!).SlaveAddress);
+        Assert.Equal(117, Assert.Single(result.AlreadyInSystemSlaves!).SlaveAddress);
         Assert.DoesNotContain(gateway.Requests, r => r[6] == 117);
         Assert.DoesNotContain(gateway.Requests, r => r[6] is 0 or > 247);
     }

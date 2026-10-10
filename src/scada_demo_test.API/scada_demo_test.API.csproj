@@ -3,6 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UserSecretsId>scada-demo-local-api-74c1806c-5cf4-4469-931f-cda3f4d77620</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\scada_demo_test.Infrastructure\scada_demo_test.Infrastructure.csproj" />

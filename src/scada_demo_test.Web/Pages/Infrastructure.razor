@@ -1,0 +1,93 @@
+@using System.Text.Json
+@using scada_demo_test.Domain.Constants
+@using scada_demo_test.Web.Services
+@page "/infrastructure"
+@attribute [Authorize(Policy = "Tab:Devices")]
+@attribute [Authorize(Policy = $"Action:{AppPermissions.DevicesView}")]
+@inject ScadaDemoTestApiClient Api
+@inject LiveTelemetryState Live
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>View Gateway and Sensors</PageTitle>
+
+<div class="infrastructure-page">
+    <header class="infra-heading">
+        <div><div class="infra-eyebrow">Connectivity &amp; instrumentation</div><h1>View Gateway and Sensors</h1><p>Your connected infrastructure. One clear view.</p></div>
+        <AuthorizeView Policy="Action:Devices.Add"><Authorized><button class="btn-primary-scada" @onclick="GoToGateway">＋ Add device</button></Authorized></AuthorizeView>
+    </header>
+
+    <section class="infra-metrics" aria-label="Infrastructure summary">
+        <div class="infra-metric"><span class="infra-metric-icon">▤</span><div><small>Total devices</small><strong>@Devices.Count</strong><em>Controllers &amp; gateways</em></div></div>
+        <div class="infra-metric"><span class="infra-metric-icon">◉</span><div><small>Devices online</small><strong>@Devices.Count(d => d.IsOnline)</strong><em>Current API status</em></div></div>
+        <div class="infra-metric"><span class="infra-metric-icon">⌁</span><div><small>Connected sensors</small><strong>@Sensors.Count</strong><em>Across all devices</em></div></div>
+        <div class="infra-metric alert"><span class="infra-metric-icon">!</span><div><small>Sensors offline / stale</small><strong>@Sensors.Count(s => !SensorOnline(s))</strong><em>Require attention</em></div></div>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(Error)) { <div class="infra-error" role="alert">@Error</div> }
+    @if (Loading) { <div class="infra-empty">Loading infrastructure…</div> }
+    else if (SelectedDevice is null)
+    {
+        <section class="infra-panel">
+            <div class="infra-panel-heading"><div><h2>Gateways &amp; controllers</h2><p>Select a device to explore its connected sensors.</p></div><span>@FilteredDevices.Count() devices</span></div>
+            <div class="infra-toolbar"><input type="search" aria-label="Search devices" placeholder="Search name or IP address…" @bind="DeviceQuery" @bind:event="oninput" /><div class="infra-filters">@foreach (var f in DeviceFilters) { <button class="@(DeviceFilter == f ? "active" : "")" @onclick="() => DeviceFilter = f">@f</button> }</div></div>
+            @if (FilteredDevices.Count() == 0) { <div class="infra-empty">No devices match the current search or filter.</div> }
+             else { <div class="gateway-grid">@foreach (var d in FilteredDevices) { <button class="gateway-card connection-card @(d.IsOnline ? "is-online" : "is-offline")" @onclick="() => SelectDevice(d)"><div class="card-top"><span class="type-tag">@DeviceType(d)</span><span class="status-badge @(d.IsOnline ? "online" : "offline")">@(d.IsOnline ? "online" : "offline")</span></div><div class="device-art"><img src="@DevicePhoto(d)" alt="@DeviceType(d) device" /></div><h3>@d.Name</h3><p>@(IsNorvi(d) ? "Industrial controller for distributed process I/O." : "Industrial serial-to-network data gateway.")</p><dl><div><dt>Address</dt><dd>@(d.IpAddress ?? "Not configured")</dd></div><div><dt>Port</dt><dd>@d.Port</dd></div></dl><footer><span>@Sensors.Count(s => s.DeviceId == d.Id) sensors</span><b>View sensors →</b></footer></button> }</div>}
+        </section>
+    }
+    else
+    {
+        <div class="drill-nav"><button class="back-button" @onclick="ClearSelection">← Back to all devices</button><span><strong>@SelectedDevice.Name</strong> · @(SelectedDevice.IpAddress ?? "No address")</span></div>
+        <header class="infra-drill-heading"><div><div class="infra-eyebrow">Device drill-down</div><h1>@SelectedDevice.Name</h1><p>@(SelectedDevice.IpAddress ?? "No address") · @DeviceType(SelectedDevice)</p></div><span>@SelectedSensors.Count() sensors</span></header>
+         <div class="gateway-summary connection-card @(SelectedDevice.IsOnline ? "is-online" : "is-offline")"><div class="device-art"><img src="@DevicePhoto(SelectedDevice)" alt="@DeviceType(SelectedDevice) device" /></div><div><h2>@SelectedDevice.Name</h2><p>@SelectedDevice.HardwareType · @(SelectedDevice.IpAddress ?? "No address"):@SelectedDevice.Port</p><span class="status-badge @(SelectedDevice.IsOnline ? "online" : "offline")">@(SelectedDevice.IsOnline ? "Online" : "Offline")</span></div></div>
+        <section class="infra-panel"><div class="infra-panel-heading"><div><h2>Connected sensors <small>/ Slave matrix</small></h2></div><span>Green · Online &nbsp; Red · Offline</span></div><div class="infra-toolbar"><input type="search" aria-label="Search sensors" placeholder="Search sensor, category, or slave ID…" @bind="SensorQuery" @bind:event="oninput" /><select aria-label="Filter sensor category" @bind="CategoryFilter"><option>All categories</option>@foreach (var c in CategoriesForSelection) { <option>@c</option> }</select><div class="infra-filters">@foreach (var f in SensorFilters) { <button class="@(SensorFilter == f ? "active" : "")" @onclick="() => SensorFilter = f">@f</button> }</div></div>
+            @if (FilteredSensors.Count() == 0) { <div class="infra-empty">No sensors match the current search or filter.</div> }
+             else { @foreach (var group in FilteredSensors.GroupBy(CategoryOf).OrderBy(g => CategoryOrder.IndexOf(g.Key))) { <section class="sensor-group"><div class="sensor-group-heading"><h3>@group.Key</h3><span>@group.Count() sensors</span></div><div class="sensor-grid">@foreach (var sensor in group) { var metrics = FreshMetrics(sensor).OrderByDescending(x => x.Value.Seen).ToList(); var online = SensorOnline(sensor); <button class="sensor-card connection-card @(online ? "is-online" : "is-offline")" @onclick="() => OpenSensor(sensor)"><div class="sensor-top"><span class="slave-label">Slave @sensor.SlaveAddress</span><span class="status-badge @(online ? "online" : "offline")">@(online ? "online" : "offline")</span></div><div class="sensor-symbol">⌁</div><h4>@sensor.Name</h4><p>@DriverName(sensor)</p>@if (online && metrics.Count > 0) { var metric = metrics[0]; <div class="reading"><strong>@metric.Value.Value.ToString("0.##")</strong><span>@(metric.Value.Unit ?? "")</span></div><div class="sensor-updated">@metric.Key · Live · @metric.Value.Seen.ToLocalTime().ToString("HH:mm:ss")</div> } else { <div class="offline-note">No live reading</div> }<footer>@(sensor.LatestTimestampUtc.HasValue ? $"Updated {sensor.LatestTimestampUtc.Value.ToLocalTime():HH:mm:ss}" : "No sample available")</footer></button> }</div></section> } }
+        </section>
+    }
+</div>
+
+@if (DetailSensor is not null)
+{
+    <div class="infra-modal-backdrop" @onclick="CloseSensor"><div class="infra-modal" role="dialog" aria-modal="true" aria-labelledby="sensor-detail-title" tabindex="-1" @onkeydown="HandleModalKey" @onclick:stopPropagation><button class="modal-close" autofocus aria-label="Close sensor detail" @onclick="CloseSensor">×</button><div class="infra-eyebrow">Sensor detail</div><h2 id="sensor-detail-title">@DetailSensor.Name</h2><p>@DetailSensor.UniqueSensorId · @DriverName(DetailSensor) · @CategoryOf(DetailSensor)</p><div class="detail-stats"><div><strong>@DetailValue</strong><span>@DetailUnit</span></div><div><strong>@(SensorOnline(DetailSensor) ? "Online" : "Offline / stale")</strong><span>Status</span></div><div><strong>@DetailSensor.SlaveAddress</strong><span>Modbus slave</span></div></div><dl class="detail-meta"><div><dt>Device</dt><dd>@DetailSensor.DeviceName</dd></div><div><dt>Gateway</dt><dd>@(SelectedDevice?.IpAddress ?? "—"):@(SelectedDevice?.Port)</dd></div><div><dt>Category</dt><dd>@CategoryOf(DetailSensor)</dd></div><div><dt>Updated</dt><dd>@(DetailSensor.LatestTimestampUtc?.ToLocalTime().ToString("g") ?? "No updated reading")</dd></div></dl><h3>Recent history</h3>@if (DetailHistory.Count > 0) { <table class="history-table"><caption>Real samples · primary value (@DetailUnit)</caption><thead><tr><th scope="col">Time</th><th scope="col">Value</th></tr></thead><tbody>@foreach (var point in DetailHistory.TakeLast(30).Reverse()) { <tr><td>@point.TimestampUtc.ToLocalTime().ToString("g")</td><td>@point.PrimaryValue.ToString("0.##") @(DetailUnit == "No live reading" ? "" : DetailUnit)</td></tr> }</tbody></table> } else { <div class="offline-note">No real history samples available.</div> }</div></div>
+}
+
+@code {
+    private readonly CancellationTokenSource _disposeCts = new();
+    private CancellationTokenSource? _historyCts;
+    private long _selectionVersion;
+    private long _detailVersion;
+    private List<ScadaDemoTestApiClient.GatewayDeviceDto> Devices = new();
+    private List<ScadaDemoTestApiClient.AttachedSensorDto> Sensors = new();
+    private readonly string[] DeviceFilters = ["All devices", "NORVI controllers", "Gateways"];
+    private readonly string[] SensorFilters = ["All sensors", "Online", "Offline"];
+    private readonly List<string> CategoryOrder = ["Water", "Steam", "Gas", "Air", "Temperature & RH", "Water Quality", "Electrical & Mechanical", "Other"];
+    private string DeviceFilter = "All devices", SensorFilter = "All sensors", CategoryFilter = "All categories", DeviceQuery = "", SensorQuery = "";
+    private bool Loading = true; private string? Error; private ScadaDemoTestApiClient.GatewayDeviceDto? SelectedDevice; private ScadaDemoTestApiClient.AttachedSensorDto? DetailSensor; private List<ScadaDemoTestApiClient.SensorReadingDto> DetailHistory = new(); private PeriodicTimer? _refreshTimer;
+    private IEnumerable<ScadaDemoTestApiClient.GatewayDeviceDto> FilteredDevices => Devices.Where(d => (string.IsNullOrWhiteSpace(DeviceQuery) || $"{d.Name} {d.IpAddress} {d.HardwareType}".Contains(DeviceQuery, StringComparison.OrdinalIgnoreCase)) && (DeviceFilter == "All devices" || (DeviceFilter == "NORVI controllers" ? IsNorvi(d) : !IsNorvi(d))));
+    private IEnumerable<ScadaDemoTestApiClient.AttachedSensorDto> SelectedSensors => SelectedDevice is null ? [] : Sensors.Where(s => s.DeviceId == SelectedDevice.Id);
+    private IEnumerable<ScadaDemoTestApiClient.AttachedSensorDto> FilteredSensors => SelectedSensors.Where(s => (string.IsNullOrWhiteSpace(SensorQuery) || $"{s.Name} {s.UniqueSensorId} {s.SensorTypeKey} {CategoryOf(s)}".Contains(SensorQuery, StringComparison.OrdinalIgnoreCase)) && (CategoryFilter == "All categories" || CategoryOf(s) == CategoryFilter) && (SensorFilter == "All sensors" || (SensorFilter == "Online" ? SensorOnline(s) : !SensorOnline(s))));
+    private IEnumerable<string> CategoriesForSelection => SelectedSensors.Select(CategoryOf).Distinct().OrderBy(c => CategoryOrder.IndexOf(c));
+    private string DetailValue => DetailSensor is null ? "—" : SensorOnline(DetailSensor) && FreshMetrics(DetailSensor).OrderByDescending(v => v.Value.Seen).FirstOrDefault() is { } m ? m.Value.Value.ToString("0.##") : "—";
+    private string DetailUnit => DetailSensor is null ? "No live reading" : SensorOnline(DetailSensor) && FreshMetrics(DetailSensor).OrderByDescending(v => v.Value.Seen).FirstOrDefault() is { } m ? m.Value.Unit ?? "" : "No live reading";
+    protected override async Task OnInitializedAsync() { Live.OnChange += OnLiveChange; await Live.EnsureConnectedAsync(); await RefreshAsync(_disposeCts.Token); _ = RefreshLoopAsync(_disposeCts.Token); }
+    private async Task RefreshLoopAsync(CancellationToken token) { _refreshTimer = new PeriodicTimer(TimeSpan.FromSeconds(5)); try { while (await _refreshTimer.WaitForNextTickAsync(token)) await RefreshAsync(token); } catch (OperationCanceledException) { } catch { /* circuit shutdown */ } }
+    private async Task RefreshAsync(CancellationToken token) { try { var selectionVersion = _selectionVersion; var detailVersion = _detailVersion; var selectedDeviceId = SelectedDevice?.Id; var detailSensorId = DetailSensor?.Id; var devices = await Api.GetGatewayDevicesAsync(); token.ThrowIfCancellationRequested(); var sensors = await Api.GetSensorsAsync(); token.ThrowIfCancellationRequested(); Devices = devices.OrderBy(d => d.Name).ToList(); Sensors = sensors.Where(s => s.IsActive).ToList(); if (_selectionVersion == selectionVersion) SelectedDevice = selectedDeviceId is Guid did ? Devices.FirstOrDefault(d => d.Id == did) : null; else if (SelectedDevice is { } currentDevice) SelectedDevice = Devices.FirstOrDefault(d => d.Id == currentDevice.Id); if (_detailVersion == detailVersion) DetailSensor = detailSensorId is Guid sid ? Sensors.FirstOrDefault(s => s.Id == sid) : null; else if (DetailSensor is { } currentSensor) DetailSensor = Sensors.FirstOrDefault(s => s.Id == currentSensor.Id); if (SelectedDevice is null) DetailSensor = null; Error = null; } catch (OperationCanceledException) { } catch (Exception ex) { if (!token.IsCancellationRequested) Error = $"Infrastructure could not be refreshed: {ex.Message}"; } finally { Loading = false; if (!token.IsCancellationRequested) { try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { } catch (InvalidOperationException) { } } } }
+    private async void OnLiveChange() { if (_disposeCts.IsCancellationRequested) return; try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { } catch (InvalidOperationException) { } }
+    private void SelectDevice(ScadaDemoTestApiClient.GatewayDeviceDto d) { _selectionVersion++; SelectedDevice = d; SensorQuery = ""; SensorFilter = "All sensors"; CategoryFilter = "All categories"; }
+    private void ClearSelection() { _selectionVersion++; _detailVersion++; SelectedDevice = null; DetailSensor = null; }
+    private async Task OpenSensor(ScadaDemoTestApiClient.AttachedSensorDto s) { _detailVersion++; var detailVersion = _detailVersion; _historyCts?.Cancel(); _historyCts?.Dispose(); _historyCts = CancellationTokenSource.CreateLinkedTokenSource(_disposeCts.Token); var token = _historyCts.Token; DetailSensor = s; DetailHistory = new(); try { var history = await Api.GetSensorTelemetryAsync(s.Id, 50); token.ThrowIfCancellationRequested(); if (_detailVersion == detailVersion && DetailSensor?.Id == s.Id) DetailHistory = history; } catch (OperationCanceledException) { } catch { } }
+    private void CloseSensor() { _detailVersion++; _historyCts?.Cancel(); DetailSensor = null; }
+    private void HandleModalKey(KeyboardEventArgs e) { if (e.Key == "Escape") CloseSensor(); }
+    private void GoToGateway() => Navigation.NavigateTo("/gateway");
+    private static bool IsNorvi(ScadaDemoTestApiClient.GatewayDeviceDto d) => d.HardwareType.Contains("norvi", StringComparison.OrdinalIgnoreCase) || d.ProvisionedVia.Contains("norvi", StringComparison.OrdinalIgnoreCase);
+    private static string DeviceType(ScadaDemoTestApiClient.GatewayDeviceDto d) => IsNorvi(d) ? "NORVI controller" : "Gateway";
+    private static string DriverName(ScadaDemoTestApiClient.AttachedSensorDto s) => (s.DriverDisplayName ?? s.SensorTypeKey).Split('(')[0].Trim();
+    private static string DevicePhoto(ScadaDemoTestApiClient.GatewayDeviceDto d) => IsNorvi(d) ? "/images/norvi.jpeg" : "/images/gateway.jpeg";
+    private string CategoryOf(ScadaDemoTestApiClient.AttachedSensorDto s) { var driver = $"{s.SensorTypeKey} {s.DriverDisplayName}"; var name = s.Name; if (driver.Contains("gas", StringComparison.OrdinalIgnoreCase) || name.Contains("gas", StringComparison.OrdinalIgnoreCase)) return "Gas"; if (driver.Contains("steam", StringComparison.OrdinalIgnoreCase) || name.Contains("steam", StringComparison.OrdinalIgnoreCase) || name.Contains("boiler", StringComparison.OrdinalIgnoreCase)) return "Steam"; if (driver.Contains("ph", StringComparison.OrdinalIgnoreCase) || name.Contains("ph", StringComparison.OrdinalIgnoreCase) || name.Contains("chlor", StringComparison.OrdinalIgnoreCase) || name.Contains("turb", StringComparison.OrdinalIgnoreCase)) return "Water Quality"; if (driver.Contains("temp", StringComparison.OrdinalIgnoreCase) || driver.Contains("humid", StringComparison.OrdinalIgnoreCase) || name.Contains("temperature", StringComparison.OrdinalIgnoreCase)) return "Temperature & RH"; if (driver.Contains("power", StringComparison.OrdinalIgnoreCase) || name.Contains("current", StringComparison.OrdinalIgnoreCase) || name.Contains("vibr", StringComparison.OrdinalIgnoreCase)) return "Electrical & Mechanical"; if (driver.Contains("air", StringComparison.OrdinalIgnoreCase) || name.Contains("pressure", StringComparison.OrdinalIgnoreCase)) return "Air"; if (driver.Contains("flow", StringComparison.OrdinalIgnoreCase) || name.Contains("water", StringComparison.OrdinalIgnoreCase) || name.Contains("level", StringComparison.OrdinalIgnoreCase)) return "Water"; return "Other"; }
+    private LiveTelemetryState.MeterState? Snapshot(ScadaDemoTestApiClient.AttachedSensorDto s) => Live.GetMeterSnapshot(s.UniqueSensorId);
+    private IEnumerable<KeyValuePair<string, (double Value, string? Unit, DateTime Seen)>> FreshMetrics(ScadaDemoTestApiClient.AttachedSensorDto s) { var snapshot = Snapshot(s); if (snapshot is null) return []; var selected = SelectedMetricKeys(s); var cutoff = DateTime.UtcNow.AddSeconds(-60); return snapshot.Values.Where(v => selected.Contains(v.Key) && v.Value.Seen >= cutoff); }
+    private static HashSet<string> SelectedMetricKeys(ScadaDemoTestApiClient.AttachedSensorDto s) { if (string.IsNullOrWhiteSpace(s.MetricFields)) return []; try { return (JsonSerializer.Deserialize<Dictionary<string, string>>(s.MetricFields) ?? []).Keys.ToHashSet(StringComparer.OrdinalIgnoreCase); } catch { return []; } }
+    private bool SensorOnline(ScadaDemoTestApiClient.AttachedSensorDto s) => Error is null && Live.IsConnected && s.IsOnline && Snapshot(s)?.IsOnline == true && FreshMetrics(s).Any();
+    public void Dispose() { Live.OnChange -= OnLiveChange; _disposeCts.Cancel(); _historyCts?.Cancel(); _historyCts?.Dispose(); _refreshTimer?.Dispose(); _disposeCts.Dispose(); }
+}

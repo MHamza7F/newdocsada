@@ -27,6 +27,11 @@
     </div>
 }
 
+@if (InitialLoadError is not null)
+{
+    <div class="report-error-box"><span>⚠️ @InitialLoadError</span><button class="btn-sm-action-ack" @onclick="LoadInventoryAsync">Retry</button></div>
+}
+
 @if (AllSensors.Count == 0 && !Loading)
 {
     <div class="glass-card" style="text-align:center;padding:3rem;">
@@ -278,7 +283,6 @@ else
     private List<ScadaDemoTestApiClient.AttachedSensorDto> AllSensors = new();
     private HashSet<string> ExpandedGateways = new(StringComparer.OrdinalIgnoreCase);
     private int SamplePage = 1;
-    private int SensorPage = 1;
     private Guid SelectedSensorId;
     private string SelectedMetric = "Primary";
     private DateTime FromLocal = DateTime.Now.AddHours(-1);
@@ -288,8 +292,8 @@ else
     private string? Error = null;
     private string? ToastMessage = null;
     private bool ToastIsError = false;
+    private string? InitialLoadError;
     private List<ScadaDemoTestApiClient.SensorReadingDto> Result = new();
-    private int SamplesShown = 200;
 
     private ScadaDemoTestApiClient.AttachedSensorDto? SelectedSensor =>
         AllSensors.FirstOrDefault(s => s.Id == SelectedSensorId);
@@ -322,25 +326,36 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        var devices = await Api.GetGatewayDevicesAsync();
-        AllSensors = new List<ScadaDemoTestApiClient.AttachedSensorDto>();
-        foreach (var d in devices)
-        {
-            var sensors = await Api.GetSensorsAsync(d.Id);
-            AllSensors.AddRange(sensors);
-            ExpandedGateways.Add(d.Name ?? "Unassigned Gateway");
-        }
+        await LoadInventoryAsync();
+    }
 
-        if (AllSensors.Count > 0)
+    private async Task LoadInventoryAsync()
+    {
+        Loading = true;
+        InitialLoadError = null;
+        try
         {
-            SelectedSensorId = AllSensors[0].Id;
-            Loading = false;
-            await RunReportAsync();
+            var devices = await Api.GetGatewayDevicesAsync();
+            var sensors = new List<ScadaDemoTestApiClient.AttachedSensorDto>();
+            foreach (var d in devices)
+            {
+                sensors.AddRange(await Api.GetSensorsAsync(d.Id));
+                ExpandedGateways.Add(d.Name ?? "Unassigned Gateway");
+            }
+            AllSensors = sensors;
+            if (AllSensors.Count > 0)
+            {
+                SelectedSensorId = AllSensors[0].Id;
+                await RunReportAsync();
+            }
         }
-        else
+        catch (Exception ex)
         {
-            Loading = false;
+            AllSensors = new();
+            Result = new();
+            InitialLoadError = $"Unable to load report sensors: {ex.Message}";
         }
+        finally { Loading = false; }
     }
 
     private void ApplyPreset(TimeSpan span)
@@ -357,7 +372,6 @@ else
         Loading = true;
         Error = null;
         Result = new();
-        SamplesShown = 200;
 
         try
         {
@@ -403,8 +417,12 @@ else
         }
 
         var filename = $"telemetry_{sensor.UniqueSensorId}_{FromLocal:yyyyMMdd-HHmm}_{ToLocal:yyyyMMdd-HHmm}.csv";
-        await JS.InvokeVoidAsync("downloadTextFile", filename, sb.ToString(), "text/csv");
-        await ShowToast($"CSV exported - {Result.Count} rows.", isError: false);
+        try
+        {
+            await JS.InvokeVoidAsync("downloadTextFile", filename, sb.ToString(), "text/csv");
+            await ShowToast($"CSV exported - {Result.Count} rows.", isError: false);
+        }
+        catch (Exception ex) { await ShowToast($"CSV export failed: {ex.Message}", isError: true); }
     }
 
     private async Task DownloadPdfAsync()
@@ -416,17 +434,21 @@ else
             return;
         }
 
-        var bytes = await Api.GetSensorTelemetryPdfAsync(sensor.Id, FromLocal, ToLocal);
-        if (bytes is null || bytes.Length == 0)
+        try
         {
-            await ShowToast("PDF generation failed - try a smaller range.", isError: true);
-            return;
-        }
+            var bytes = await Api.GetSensorTelemetryPdfAsync(sensor.Id, FromLocal, ToLocal);
+            if (bytes is null || bytes.Length == 0)
+            {
+                await ShowToast("PDF generation failed - try a smaller range.", isError: true);
+                return;
+            }
 
-        var base64 = Convert.ToBase64String(bytes);
-        var filename = $"telemetry_{sensor.UniqueSensorId}_{FromLocal:yyyyMMdd-HHmm}_{ToLocal:yyyyMMdd-HHmm}.pdf";
-        await JS.InvokeVoidAsync("downloadBlob", filename, base64, "application/pdf");
-        await ShowToast($"PDF exported - {Result.Count} rows.", isError: false);
+            var base64 = Convert.ToBase64String(bytes);
+            var filename = $"telemetry_{sensor.UniqueSensorId}_{FromLocal:yyyyMMdd-HHmm}_{ToLocal:yyyyMMdd-HHmm}.pdf";
+            await JS.InvokeVoidAsync("downloadBlob", filename, base64, "application/pdf");
+            await ShowToast($"PDF exported - {Result.Count} rows.", isError: false);
+        }
+        catch (Exception ex) { await ShowToast($"PDF export failed: {ex.Message}", isError: true); }
     }
 
     private int _toastSeq;

@@ -1,34 +1,34 @@
 using Microsoft.AspNetCore.Identity;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc.Filters;
 using scada_demo_test.Domain.Constants;
 using scada_demo_test.Infrastructure.Identity;
 
 namespace scada_demo_test.API.Filters;
 
-// The Web app is a separate Blazor Server process with its own cookie - it
-// can't share that cookie with this API out of the box, so on every call to
-// a Users/Roles endpoint it forwards the caller's role name in the
-// X-Requesting-Role header (see scada_demo_test.Web.Services.PermissionForwardingHandler).
-// This filter re-checks that role against the RolePermission table (or the
-// SuperAdmin bypass) before letting the request through.
-//
-// NOTE for later hardening: this trusts the header, which is fine on a private
-// plant network but should become a signed JWT once this is exposed publicly.
+// Check the authenticated JWT identity, never a caller-supplied role header.
+// Preserve the live role-permission lookup and the existing SuperAdmin bypass.
 public class RequireUsersTabAttribute : Attribute, IAsyncActionFilter
 {
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        var roleName = context.HttpContext.Request.Headers["X-Requesting-Role"].ToString();
-
-        if (string.IsNullOrWhiteSpace(roleName))
+        var user = context.HttpContext.User;
+        if (user.Identity?.IsAuthenticated != true)
         {
-            context.Result = new Microsoft.AspNetCore.Mvc.UnauthorizedObjectResult(new { message = "Missing caller role." });
+            context.Result = new Microsoft.AspNetCore.Mvc.UnauthorizedResult();
             return;
         }
 
-        if (roleName == IdentitySeeder.SuperAdminRole)
+        if (user.IsInRole(IdentitySeeder.SuperAdminRole) || user.HasClaim("IsSuperAdmin", "true"))
         {
             await next();
+            return;
+        }
+
+        var roleName = user.FindFirstValue(ClaimTypes.Role);
+        if (string.IsNullOrWhiteSpace(roleName))
+        {
+            context.Result = new Microsoft.AspNetCore.Mvc.ForbidResult();
             return;
         }
 

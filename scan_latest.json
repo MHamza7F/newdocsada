@@ -1,0 +1,55 @@
+﻿{
+    "deviceId":  "a586e383-db03-459e-aae1-f7faf0117b91",
+    "deviceName":  "TEST_USR_12",
+    "gatewayIp":  "10.10.100.254",
+    "gatewayPort":  502,
+    "probeTimeoutMs":  200,
+    "slavesScanned":  20,
+    "respondingSlaves":  2,
+    "unknownResponders":  0,
+    "connectivityOk":  true,
+    "errorCode":  null,
+    "scannedAtUtc":  "2026-10-09T06:40:02.3173343Z",
+    "found":  [
+                  {
+                      "slaveAddress":  1,
+                      "driverKey":  "AOSONG_AQ3485",
+                      "simpleName":  "aosong",
+                      "displayName":  "Aosong AQ3485/Y (Temperature \u0026 Humidity)",
+                      "startRegister":  0,
+                      "registerQuantity":  2,
+                      "unitPrimary":  "°C",
+                      "unitSecondary":  "%RH",
+                      "defaultPollIntervalSeconds":  5,
+                      "suggestedName":  "Aosong AQ3485/Y (Temperature \u0026 Humidity) (Slave 1)",
+                      "livePrimary":  30.3,
+                      "liveSecondary":  76.8,
+                      "status":  "identified",
+                      "isAmbiguous":  false,
+                      "candidates":  null,
+                      "profileType":  "AosongAQ3485",
+                      "rawHexPayload":  "0300012F"
+                  }
+              ],
+    "skippedSlaves":  [
+
+                      ],
+    "ambiguousSlaves":  [
+
+                        ],
+    "duplicateIdConflicts":  [
+                                 {
+                                     "slaveAddress":  13,
+                                     "sensorCount":  2,
+                                     "driverName":  null,
+                                     "message":  "Your 2 sensors are using the same Slave ID 13. Two meters cannot share one ID - give each meter a different Slave ID (change all but one), then scan again.",
+                                     "collidingSensorNames":  [
+                                                                  "Kaifeng IEMFL Electromagnetic Flowmeter (Water)",
+                                                                  "Selec RI-F200-C 3-Phase Power/Energy Meter"
+                                                              ]
+                                 }
+                             ],
+    "alreadyInSystemSensors":  [
+
+                               ]
+}

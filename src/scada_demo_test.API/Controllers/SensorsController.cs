@@ -102,6 +102,7 @@ public class SensorsController : ControllerBase
 
     // Installed driver library catalog - drives the "Add Sensor" form dropdown.
     [HttpGet("libraries")]
+    [Authorize(Policy = $"Action:{AppPermissions.DevicesView}")]
     public IActionResult GetLibraries() =>
         Ok(SensorDriverCatalog.Drivers.Select(d => new DriverCatalogDto(
             d.DriverKey,
@@ -169,6 +170,7 @@ public class SensorsController : ControllerBase
 
     [HttpGet("{id:guid}/telemetry/export-csv")]
     [Authorize(Policy = $"Action:{AppPermissions.DevicesView}")]
+    [Authorize(Policy = $"Action:{AppPermissions.ReportsExportExcel}")]
     public async Task<IActionResult> ExportTelemetryCsv(Guid id, [FromQuery] DateTime from, [FromQuery] DateTime to)
     {
         var sensor = await _sensors.GetByIdAsync(id);
@@ -200,6 +202,7 @@ public class SensorsController : ControllerBase
 
     [HttpGet("{id:guid}/telemetry/export-pdf")]
     [Authorize(Policy = $"Action:{AppPermissions.DevicesView}")]
+    [Authorize(Policy = $"Action:{AppPermissions.ReportsExportPdf}")]
     public async Task<IActionResult> ExportTelemetryPdf(Guid id, [FromQuery] DateTime from, [FromQuery] DateTime to)
     {
         var sensor = await _sensors.GetByIdAsync(id);
@@ -347,7 +350,7 @@ public class SensorsController : ControllerBase
         {
             Id = Guid.NewGuid(),
             DeviceId = device.Id,
-            UniqueSensorId = "S-" + Guid.NewGuid().ToString("N")[..4].ToUpperInvariant(),
+            UniqueSensorId = await NextUniqueSensorIdAsync(device),
             Name = req.SensorName.Trim(),
             SensorType = driver.DisplayName,
             SensorTypeKey = driver.DriverKey,
@@ -386,7 +389,7 @@ public class SensorsController : ControllerBase
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Policy = $"Action:{AppPermissions.DevicesAdd}")]
+    [Authorize(Policy = $"Action:{AppPermissions.DevicesEdit}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateSensorRequest req)
     {
         var sensor = await _sensors.GetByIdAsync(id);
@@ -457,6 +460,45 @@ public class SensorsController : ControllerBase
     }
 
     // ----------------------------------------------------------------
+
+    // Human-readable, device-scoped sensor identity so an operator can tell at a
+    // glance which gateway a sensor belongs to: device "Norvi 12" produces
+    // "NORVI12-S01", "NORVI12-S02", ... Sequence continues past any deleted gap
+    // and the global unique index on UniqueSensorId is respected.
+    private async Task<string> NextUniqueSensorIdAsync(Device device)
+    {
+        var slug = Slugify(device.Name);
+        if (slug.Length == 0) slug = Slugify(device.ExternalId);
+        if (slug.Length == 0) slug = "DEV";
+
+        var existing = (await _sensors.GetAllAsync()).Select(s => s.UniqueSensorId).ToList();
+        var used = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
+
+        var prefix = slug + "-S";
+        var maxSeq = 0;
+        foreach (var id in existing)
+        {
+            if (!id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            if (int.TryParse(id[prefix.Length..], out var n) && n > maxSeq) maxSeq = n;
+        }
+
+        for (var seq = maxSeq + 1; seq <= maxSeq + 1000; seq++)
+        {
+            var candidate = $"{prefix}{seq:D2}";
+            if (!used.Contains(candidate)) return candidate;
+        }
+
+        return $"{prefix}{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
+    }
+
+    private static string Slugify(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        return new string(raw.Trim().ToUpperInvariant()
+            .Where(char.IsLetterOrDigit)
+            .Take(16)
+            .ToArray());
+    }
 
     private async Task<SensorDto> MapAsync(Sensor s, string? deviceName)
     {

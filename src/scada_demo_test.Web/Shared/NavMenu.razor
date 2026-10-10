@@ -1,22 +1,26 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @using scada_demo_test.Domain.Constants
 @inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Navigation
+@inject Microsoft.AspNetCore.Antiforgery.AntiforgeryTokenSet AccountFormToken
+@implements IDisposable
 
-<aside class="sidebar @(IsCollapsed ? "collapsed" : "") @(IsMobileOpen ? "mobile-open" : "")">
+<aside id="primary-sidebar" aria-label="Main navigation" class="sidebar @(IsCollapsed ? "collapsed" : "") @(IsMobileOpen ? "mobile-open" : "")">
     <div class="sidebar-brand">
         <img class="brand-logo" src="/images/logo.jpg" alt="ALAM IOT logo" />
         <div class="brand-text">
             <div class="brand-title">ALAM IOT</div>
             <div class="brand-sub">SCADA ENTERPRISE</div>
         </div>
+        <button type="button" class="icon-btn sidebar-mobile-close" aria-label="Close navigation" @onclick="OnBackdropClick">&times;</button>
     </div>
 
-    <nav class="sidebar-nav">
+    <nav class="sidebar-nav" aria-label="Primary">
         @foreach (var entry in VisibleNavEntries)
         {
             @if (entry is NavItem item)
             {
-                <NavLink class="nav-item" href="@item.Href" Match="@item.Match" title="@item.Label">
+                <NavLink class="nav-item" href="@item.Href" Match="@item.Match" title="@item.Label" aria-label="@item.Label" @onclick="OnBackdropClick">
                     <span class="nav-icon">
                         @GetNavIcon(item.Icon)
                     </span>
@@ -27,19 +31,19 @@
             {
                 var groupOpen = OpenGroups.Contains(group.Title);
                 <div class="nav-group">
-                    <a class="nav-item nav-group-title @(groupOpen ? "group-open" : "")" @onclick="() => ToggleGroup(group.Title)">
+                    <button type="button" class="nav-item nav-group-title @(groupOpen ? "group-open" : "")" title="@group.Title" aria-label="@group.Title" aria-expanded="@groupOpen.ToString().ToLowerInvariant()" aria-controls="@($"nav-group-{group.TabKey}")" @onclick="() => ToggleGroup(group.Title)">
                         <span class="nav-icon">
                             @GetNavIcon(group.Icon)
                         </span>
                         <span class="nav-label">@group.Title</span>
                         <span class="nav-caret" style="@(groupOpen ? "transform:rotate(90deg);" : "")">▶</span>
-                    </a>
+                    </button>
                     @if (groupOpen)
                     {
-                        <div class="nav-group-children">
+                        <div id="@($"nav-group-{group.TabKey}")" class="nav-group-children">
                             @foreach (var child in group.Children)
                             {
-                                <NavLink class="nav-item nav-child" href="@child.Href" Match="@child.Match" title="@child.Label">
+                                <NavLink class="nav-item nav-child" href="@child.Href" Match="@child.Match" title="@child.Label" aria-label="@child.Label" @onclick="OnBackdropClick">
                                     <span class="nav-icon">
                                         @GetNavIcon(child.Icon)
                                     </span>
@@ -54,7 +58,9 @@
     </nav>
 
     <div class="sidebar-footer-slot">
-        <a class="nav-item logout" href="/account/logout" title="Logout">
+        <form method="post" action="/account/logout">
+            <input type="hidden" name="@AccountFormToken.FormFieldName" value="@AccountFormToken.RequestToken" />
+            <button type="submit" class="nav-item logout" title="Sign Out" aria-label="Sign Out">
             <span class="nav-icon">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -63,13 +69,14 @@
                 </svg>
             </span>
             <span class="nav-label">Sign Out</span>
-        </a>
+            </button>
+        </form>
     </div>
 </aside>
 
 @if (IsMobileOpen)
 {
-    <div class="sidebar-backdrop" @onclick="OnBackdropClick"></div>
+    <div class="sidebar-backdrop" aria-hidden="true" @onclick="OnBackdropClick"></div>
 }
 
 @code {
@@ -86,6 +93,7 @@
     {
         new NavItem("/dashboard", "Dashboard", "EnergyIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Energy),
         new NavItem("/", "Live Monitoring", "MonitoringIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.All, AppTabs.Monitoring),
+        new NavItem("/infrastructure", "View Gateway and Sensors", "GatewayIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Devices),
         new NavItem("/summary", "Totalizer Summary", "SummaryIcon", Microsoft.AspNetCore.Components.Routing.NavLinkMatch.Prefix, AppTabs.Summary),
         new NavGroup("TREND", "TrendsIcon", AppTabs.Charts, new()
         {
@@ -138,6 +146,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Navigation.LocationChanged += OnLocationChanged;
+        ExpandCurrentGroup();
         var authState = await AuthProvider.GetAuthenticationStateAsync();
         var user = authState.User;
 
@@ -160,4 +170,20 @@
             return false;
         }).ToList();
     }
+
+    private void ExpandCurrentGroup()
+    {
+        var path = new Uri(Navigation.Uri).AbsolutePath.TrimEnd('/');
+        foreach (var group in AllNavEntries.OfType<NavGroup>())
+        {
+            if (group.Children.Any(child => path.Equals(child.Href, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(child.Href + "/", StringComparison.OrdinalIgnoreCase)))
+                OpenGroups.Add(group.Title);
+        }
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
+        => _ = InvokeAsync(() => { ExpandCurrentGroup(); StateHasChanged(); });
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
 }

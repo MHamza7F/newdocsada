@@ -23,6 +23,10 @@
     </div></div>
 
     <div class="pe-wrap">
+        @if (LoadError is not null)
+        {
+            <div class="report-error-box"><span>⚠️ @LoadError</span><button class="btn-sm-action-ack" @onclick="RefreshAsync">Retry</button></div>
+        }
         @if (Loading)
         {
             <div class="pe-load">Loading plant energy&hellip;</div>
@@ -54,7 +58,7 @@
                 <div class="pe-groups">
                     @foreach (var c in Cards)
                     {
-                        <section class="pe-group @(c.IsOnline ? "" : "pe-offline")">
+                        <section class="pe-group connection-card @(c.IsOnline ? "is-online" : "is-offline") @(c.IsOnline ? "" : "pe-offline")">
                             <div class="pe-g-head">@c.Name <span class="pe-tag">@c.TrendTag</span></div>
                             <div class="pe-g-body">
                                 @for (var h = 0; h < 2; h++)
@@ -123,6 +127,7 @@
     private List<SensorCard> Cards = new();
     private bool Loading = true;
     private bool Refreshing;
+    private string? LoadError;
     private bool _disposed;
     private System.Threading.Timer? _refreshTimer;
     private string Clock = DateTime.Now.ToString("HH:mm:ss");
@@ -371,6 +376,7 @@
     private async Task RefreshAsync()
     {
         Refreshing = true;
+        LoadError = null;
         try
         {
             var gateways = await Api.GetGatewayDevicesAsync();
@@ -380,8 +386,7 @@
             var batches = await Task.WhenAll(gateways.Select(async d =>
             {
                 deviceMap[d.Id] = d.Name;
-                try { return await Api.GetSensorsAsync(d.Id); }
-                catch { return new List<ScadaDemoTestApiClient.AttachedSensorDto>(); }
+                return await Api.GetSensorsAsync(d.Id);
             }));
             foreach (var list in batches) all.AddRange(list);
 
@@ -422,9 +427,9 @@
 
             Cards = next;
         }
-        catch
+        catch (Exception ex)
         {
-            // API unreachable - keep the current list rather than crashing.
+            LoadError = $"Unable to load plant energy sensors: {ex.Message}";
         }
 
         SyncLiveValues();

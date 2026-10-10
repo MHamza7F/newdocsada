@@ -1,7 +1,7 @@
 @* One reusable card - the SAME markup renders all 6 meters via a loop in
    Index.razor. Add a 7th meter later and this file never changes. *@
 
-<div class="meter-card">
+<div class="meter-card connection-card @(IsOnline ? "is-online" : "is-offline")">
     <div class="meter-card-header">
         <span class="meter-name">@DeviceName</span>
         <span class="status-pill @(IsOnline ? "online" : "offline")">

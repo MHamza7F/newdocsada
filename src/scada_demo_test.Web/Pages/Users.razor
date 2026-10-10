@@ -34,6 +34,13 @@
     <div class="table-card-header">
         <h3>👥 Registered System Users</h3>
     </div>
+    @if (UserLoadError is not null)
+    {
+        <div class="scada-toast error" role="alert" style="margin:12px 18px;">
+            <span>@UserLoadError</span>
+            <button class="btn-sm-action-ack" @onclick="LoadDataAsync">Retry</button>
+        </div>
+    }
     <div class="table-responsive">
         <table class="scada-table">
             <thead>
@@ -47,7 +54,15 @@
                 </tr>
             </thead>
             <tbody>
-                @if (UserList.Count == 0)
+                @if (!UsersLoaded)
+                {
+                    <tr><td colspan="6" class="text-center text-muted" style="padding:24px;">Loading system users...</td></tr>
+                }
+                else if (UserLoadError is not null)
+                {
+                    <tr><td colspan="6" class="text-center text-muted" style="padding:24px;">Users are unavailable until the load succeeds.</td></tr>
+                }
+                else if (UserList.Count == 0)
                 {
                     <tr>
                         <td colspan="6" class="text-center text-muted" style="padding: 24px;">
@@ -120,8 +135,26 @@
         </div>
     </div>
 
-    @foreach (var role in Roles)
+    @if (RolesLoadError is not null)
     {
+        <div class="scada-toast error" role="alert" style="margin:12px 18px;">
+            <span>@RolesLoadError</span>
+            <button class="btn-sm-action-ack" @onclick="LoadRolesAsync">Retry</button>
+        </div>
+    }
+
+    @if (!RolesLoaded)
+    {
+        <div class="text-center text-muted" style="padding:24px;">Loading roles...</div>
+    }
+    else if (RolesLoadError is null && Roles.Count == 0)
+    {
+        <div class="text-center text-muted" style="padding:24px;">No roles are available.</div>
+    }
+    else if (RolesLoadError is null)
+    {
+        @foreach (var role in Roles)
+        {
         <div class="role-permission-box glass-card" style="margin-bottom:16px; padding:18px;">
             <div class="role-box-header">
                 <div>
@@ -170,6 +203,7 @@
                 </div>
             </div>
         </div>
+        }
     }
 </div>
 
@@ -272,6 +306,10 @@
 
     private string? ToastMessage = null;
     private bool ToastIsError = false;
+    private bool UsersLoaded;
+    private bool RolesLoaded;
+    private string? UserLoadError;
+    private string? RolesLoadError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -280,8 +318,48 @@
 
     private async Task LoadDataAsync()
     {
-        UserList = await Api.GetUsersAsync();
-        Roles = await Api.GetRolesAsync();
+        await Task.WhenAll(LoadUsersAsync(), LoadRolesAsync());
+    }
+
+    private async Task LoadUsersAsync()
+    {
+        UsersLoaded = false;
+        UserLoadError = null;
+        try
+        {
+            UserList = await Api.GetUsersAsync();
+            UsersLoaded = true;
+            UserPage = 1;
+        }
+        catch (Exception ex)
+        {
+            UserList = new();
+            UserLoadError = GetLoadError("users", ex);
+        }
+    }
+
+    private async Task LoadRolesAsync()
+    {
+        RolesLoaded = false;
+        RolesLoadError = null;
+        try
+        {
+            Roles = await Api.GetRolesAsync();
+            RolesLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            Roles = new();
+            RolesLoadError = GetLoadError("roles", ex);
+        }
+    }
+
+    private static string GetLoadError(string resource, Exception ex)
+    {
+        var denied = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized };
+        return denied
+            ? $"You do not have permission to view {resource}. Retry after your permissions are updated."
+            : $"Unable to load {resource}. Check the connection and retry.";
     }
 
     private async Task<bool> CheckPermissionAsync(string actionPermission)
@@ -292,7 +370,7 @@
         if (user.HasClaim("IsSuperAdmin", "true") || user.IsInRole("SuperAdmin"))
             return true;
 
-        if (user.HasClaim("perm", actionPermission) || user.HasClaim("perm", "Users"))
+        if (user.HasClaim("perm", actionPermission))
             return true;
 
         return false;
@@ -337,6 +415,12 @@
 
     private async Task SaveUserAsync()
     {
+        if (!await CheckPermissionAsync("Users.Manage"))
+        {
+            ShowToast("Access Denied: You do not have permission to manage users.", isError: true);
+            return;
+        }
+
         if (IsEditUserMode)
         {
             var req = new ScadaDemoTestApiClient.UpdateUserRequest(UserFirstName, UserLastName, null, UserRole, string.IsNullOrWhiteSpace(UserPassword) ? null : UserPassword);
@@ -396,6 +480,12 @@
 
     private async Task SaveRoleAsync()
     {
+        if (!await CheckPermissionAsync("Roles.Manage"))
+        {
+            ShowToast("Access Denied: You do not have permission to manage roles.", isError: true);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(NewRoleName))
         {
             ShowToast("Role name is required.", isError: true);

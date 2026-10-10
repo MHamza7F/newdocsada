@@ -1,3 +1,4 @@
+using scada_demo_test.Domain.Constants;
 using scada_demo_test.Domain.Enums;
 
 namespace scada_demo_test.Domain.Entities;
@@ -25,6 +26,11 @@ public class Device
 
     // ---- IIoT gateway communication settings (user-driven, no hardcoding) ----
     public DeviceHardwareType HardwareType { get; set; } = DeviceHardwareType.NorviESP32;
+
+    // Which management tab registered this device: "Norvi" (Norvi Device
+    // Management tab) or "Gateway" (Smart RS-485 Bus Scan tab). The two tabs
+    // show disjoint device lists; sensors inherit visibility through DeviceId.
+    public string ProvisionedVia { get; set; } = DeviceOrigin.Norvi;
     public string? IpAddress { get; set; }
     public int Port { get; set; } = 502;
     public int BaudRate { get; set; } = 9600;

@@ -1,7 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Text;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -38,14 +37,11 @@ public class JwtTokenService
         AppUser user,
         string roleName,
         List<string> permissions,
-        bool rememberMe)
+        bool rememberMe,
+        DateTime? sessionExpiry = null)
     {
-        var secret = _config["Jwt:Key"] ?? "SCADA_ENTERPRISE_SUPER_SECURE_SECRET_KEY_2026_!@#$%^&*()";
-        var issuer = _config["Jwt:Issuer"] ?? "AlamIotScadaApi";
-        var audience = _config["Jwt:Audience"] ?? "AlamIotScadaClients";
-
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var validation = JwtValidation.CreateParameters(_config);
+        var creds = new SigningCredentials(validation.IssuerSigningKey, SecurityAlgorithms.HmacSha256);
 
         var jti = Guid.NewGuid().ToString();
         var claims = new List<Claim>
@@ -66,13 +62,15 @@ public class JwtTokenService
             claims.Add(new Claim("perm", perm));
         }
 
-        var accessExpiry = DateTime.UtcNow.AddMinutes(120); // 2 hours
+        var refreshExpiry = sessionExpiry ?? (rememberMe ? DateTime.UtcNow.AddDays(30) : DateTime.UtcNow.AddDays(1));
+        var accessExpiry = DateTime.UtcNow.AddMinutes(120); // 2 hours, bounded by the session deadline
+        if (refreshExpiry < accessExpiry) accessExpiry = refreshExpiry;
         var tokenDescriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(claims),
             Expires = accessExpiry,
-            Issuer = issuer,
-            Audience = audience,
+            Issuer = validation.ValidIssuer,
+            Audience = validation.ValidAudience,
             SigningCredentials = creds
         };
 
@@ -81,7 +79,6 @@ public class JwtTokenService
         var accessToken = tokenHandler.WriteToken(token);
 
         // Generate Refresh Token
-        var refreshExpiry = rememberMe ? DateTime.UtcNow.AddDays(30) : DateTime.UtcNow.AddDays(1);
         var refreshTokenString = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
 
         var refreshTokenEntity = new RefreshToken
@@ -106,17 +103,8 @@ public class JwtTokenService
         string expiredAccessToken,
         string refreshToken)
     {
-        var secret = _config["Jwt:Key"] ?? "SCADA_ENTERPRISE_SUPER_SECURE_SECRET_KEY_2026_!@#$%^&*()";
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
-
-        var tokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = key,
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            ValidateLifetime = false // Allow expired token
-        };
+        // Only lifetime is relaxed for refresh; signature, algorithm, issuer and audience still apply.
+        var tokenValidationParameters = JwtValidation.CreateParameters(_config, validateLifetime: false);
 
         var tokenHandler = new JwtSecurityTokenHandler();
         ClaimsPrincipal principal;
@@ -129,9 +117,9 @@ public class JwtTokenService
                 return (false, null, null, null, null, "Invalid token signature.", null, null, null);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is SecurityTokenException or ArgumentException)
         {
-            return (false, null, null, null, null, $"Token validation error: {ex.Message}", null, null, null);
+            return (false, null, null, null, null, "Invalid access token.", null, null, null);
         }
 
         var jti = principal.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
@@ -142,13 +130,13 @@ public class JwtTokenService
             return (false, null, null, null, null, "Invalid claims in token.", null, null, null);
         }
 
-        var savedRefreshToken = await _db.RefreshTokens.FirstOrDefaultAsync(r => r.Token == refreshToken);
+        var savedRefreshToken = await _db.RefreshTokens.AsNoTracking().FirstOrDefaultAsync(r => r.Token == refreshToken);
         if (savedRefreshToken == null)
         {
             return (false, null, null, null, null, "Refresh token does not exist.", null, null, null);
         }
 
-        if (savedRefreshToken.ExpiryDate < DateTime.UtcNow)
+        if (savedRefreshToken.ExpiryDate <= DateTime.UtcNow)
         {
             return (false, null, null, null, null, "Refresh token has expired.", null, null, null);
         }
@@ -158,40 +146,44 @@ public class JwtTokenService
             return (false, null, null, null, null, "Refresh token is invalid or already used.", null, null, null);
         }
 
-        if (savedRefreshToken.UserId != userId)
+        if (savedRefreshToken.UserId != userId || string.IsNullOrEmpty(jti) || savedRefreshToken.JwtId != jti)
         {
             return (false, null, null, null, null, "Refresh token does not match user.", null, null, null);
         }
 
-        // Mark old token as used (rotation)
-        savedRefreshToken.IsUsed = true;
-        await _db.SaveChangesAsync();
-
         var user = await _userManager.FindByIdAsync(userId.ToString());
-        if (user == null)
+        if (user == null || await _userManager.IsLockedOutAsync(user))
         {
             return (false, null, null, null, null, "User not found.", null, null, null);
         }
 
         var roles = await _userManager.GetRolesAsync(user);
         var roleName = roles.FirstOrDefault() ?? string.Empty;
-        var role = await _roleManager.FindByNameAsync(roleName);
+        var role = string.IsNullOrEmpty(roleName) ? null : await _roleManager.FindByNameAsync(roleName);
         var perms = role != null
             ? await _permissions.GetGrantedTabsForRoleAsync(role.Id, roleName)
             : (user.IsHardcodedSuperAdmin ? AppTabs.All.Concat(AppPermissions.All).ToList() : new List<string>());
 
-        var (newAccess, newRefresh, newAccessExp, newRefreshExp) = await GenerateTokensAsync(user, roleName, perms, rememberMe: true);
+        // Compare-and-set in the database prevents concurrent refreshes from both succeeding.
+        // Insertion and consumption commit together so a failed issuance doesn't burn the old token.
+        await using var transaction = await _db.Database.BeginTransactionAsync();
+        var now = DateTime.UtcNow;
+        var consumed = await _db.RefreshTokens
+            .Where(r => r.Id == savedRefreshToken.Id && !r.IsUsed && !r.IsRevoked && r.ExpiryDate > now)
+            .ExecuteUpdateAsync(update => update.SetProperty(r => r.IsUsed, true));
+        if (consumed != 1)
+            return (false, null, null, null, null, "Refresh token is invalid or already used.", null, null, null);
+
+        var (newAccess, newRefresh, newAccessExp, newRefreshExp) = await GenerateTokensAsync(
+            user, roleName, perms, rememberMe: false, sessionExpiry: savedRefreshToken.ExpiryDate);
+        await transaction.CommitAsync();
 
         return (true, newAccess, newRefresh, newAccessExp, newRefreshExp, null, user, roleName, perms);
     }
 
     public async Task RevokeTokenAsync(string refreshToken)
     {
-        var token = await _db.RefreshTokens.FirstOrDefaultAsync(r => r.Token == refreshToken);
-        if (token != null)
-        {
-            token.IsRevoked = true;
-            await _db.SaveChangesAsync();
-        }
+        await _db.RefreshTokens.Where(r => r.Token == refreshToken)
+            .ExecuteUpdateAsync(update => update.SetProperty(r => r.IsRevoked, true));
     }
 }

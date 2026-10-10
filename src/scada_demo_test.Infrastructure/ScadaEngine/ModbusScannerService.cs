@@ -169,7 +169,12 @@ public sealed class ModbusScannerService
                 }
 
                 var displayCollidingNames = collidingNames.ToList();
-                var msg = $"Your {responseCount} sensors are using the same Slave ID {slaveId}. Two meters cannot share one ID - give each meter a different Slave ID (change all but one), then scan again.";
+                // SensorCount = number of raw response frames (actual device instances sharing this ID).
+                // The message uses physicalSensorCount (distinct names) for operator clarity.
+                var physicalSensorCount = displayCollidingNames.Count > 0
+                    ? displayCollidingNames.Count
+                    : responseCount;
+                var msg = $"Your {responseCount} sensor{(responseCount > 1 ? "s are" : " is")} using the same Slave ID {slaveId}. Two meters cannot share one ID - give each meter a different Slave ID (change all but one), then scan again.";
 
                 summary.BlockedScanDuplicates.Add(slaveId);
                 summary.BlockedDuplicateDetails.Add(new BlockedScanDuplicate(

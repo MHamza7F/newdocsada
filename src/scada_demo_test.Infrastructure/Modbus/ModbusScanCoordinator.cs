@@ -40,6 +40,14 @@ public static class ModbusScanCoordinator
         return new Lease(() => gate.Release());
     }
 
+    // The polling pump visits all gateways sequentially. A scan owning one endpoint
+    // must not stall unrelated gateways, including when records alias the same bus.
+    public static IDisposable? TryAcquireBus(string host, int port)
+    {
+        var gate = BusLocks.GetOrAdd($"{host.Trim()}:{port}", _ => new SemaphoreSlim(1, 1));
+        return gate.Wait(0) ? new Lease(() => gate.Release()) : null;
+    }
+
     private sealed class Lease(Action release) : IDisposable
     {
         private Action? _release = release;

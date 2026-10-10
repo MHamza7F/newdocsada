@@ -44,9 +44,16 @@ public class AlertService
 
                 if (triggered)
                 {
-                    // Debounce: check if there's an active (unresolved) incident in the last 2 minutes for this device+metric
+                    // Debounce: check if there's an active (unresolved) incident in the last 10 minutes for this device+metric
                     var recentUnresolved = await _db.AlertIncidents
-                        .AnyAsync(i => i.DeviceExternalId == deviceExternalId && i.Metric == metric && !i.IsResolved && i.TriggeredAt > DateTime.UtcNow.AddMinutes(-2), ct);
+                        .AnyAsync(i => i.DeviceExternalId == deviceExternalId && i.Metric == metric && !i.IsResolved && i.TriggeredAt > DateTime.UtcNow.AddMinutes(-10), ct);
+
+                    // Also skip if value is zero (likely sensor offline, not a real alert)
+                    if (Math.Abs(value) < 0.01)
+                    {
+                        _logger.LogDebug("Alert skipped for {Device} {Metric} = {Value:F2} (zero/empty reading)", deviceName, metric, value);
+                        return;
+                    }
 
                     if (!recentUnresolved)
                     {

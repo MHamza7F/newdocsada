@@ -1,8 +1,6 @@
-using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using scada_demo_test.Application.Interfaces;
 using scada_demo_test.Application.Services;
 using scada_demo_test.Domain.Constants;
@@ -40,9 +38,7 @@ builder.Services.AddIdentity<AppUser, AppRole>(options =>
 .AddDefaultTokenProviders();
 
 // ---- JWT Authentication ----
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "SCADA_ENTERPRISE_SUPER_SECURE_SECRET_KEY_2026_!@#$%^&*()";
-var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "AlamIotScadaApi";
-var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "AlamIotScadaClients";
+var jwtValidation = JwtValidation.CreateParameters(builder.Configuration);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -51,19 +47,9 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = false;
+    options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
     options.SaveToken = true;
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-        ValidateIssuer = true,
-        ValidIssuer = jwtIssuer,
-        ValidateAudience = true,
-        ValidAudience = jwtAudience,
-        ValidateLifetime = true,
-        ClockSkew = TimeSpan.FromSeconds(30)
-    };
+    options.TokenValidationParameters = jwtValidation;
 });
 
 // ---- Granular Tab & Action Authorization Policies ----
@@ -71,7 +57,7 @@ builder.Services.AddAuthorization(options =>
 {
     foreach (var tab in AppTabs.All)
     {
-        options.AddPolicy($"Tab:{tab}", policy => policy.RequireAssertion(ctx =>
+        options.AddPolicy($"Tab:{tab}", policy => policy.RequireAuthenticatedUser().RequireAssertion(ctx =>
             ctx.User.HasClaim("IsSuperAdmin", "true") ||
             ctx.User.IsInRole(IdentitySeeder.SuperAdminRole) ||
             ctx.User.HasClaim("perm", tab)));
@@ -79,7 +65,7 @@ builder.Services.AddAuthorization(options =>
 
     foreach (var action in AppPermissions.All)
     {
-        options.AddPolicy($"Action:{action}", policy => policy.RequireAssertion(ctx =>
+        options.AddPolicy($"Action:{action}", policy => policy.RequireAuthenticatedUser().RequireAssertion(ctx =>
             ctx.User.HasClaim("IsSuperAdmin", "true") ||
             ctx.User.IsInRole(IdentitySeeder.SuperAdminRole) ||
             ctx.User.HasClaim("perm", action)));
@@ -140,97 +126,33 @@ var app = builder.Build();
 // unreachable: apply MigrateAsync + seed + additive schema init now, and if they
 // fail, keep retrying in the background until the database answers. The Modbus
 // worker is offline-tolerant, so the API can already start serving in between.
-var dbInitialized = false;
 using (var scope = app.Services.CreateScope())
 {
     try
     {
-        await InitializeDatabaseAsync(scope.ServiceProvider);
-        dbInitialized = true;
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogCritical(ex, "Database unavailable at startup; the API will keep running and retry schema initialization in the background.");
-    }
-}
-
-if (!dbInitialized)
-{
-    var lifetime = app.Lifetime;
-    _ = Task.Run(async () =>
-    {
-        try
-        {
-            while (true)
-            {
-                var stopping = lifetime.ApplicationStopping;
-                await Task.Delay(TimeSpan.FromSeconds(30), stopping);
-
-                try
-                {
-                    using var scope = app.Services.CreateScope();
-                    await InitializeDatabaseAsync(scope.ServiceProvider);
-                    app.Logger.LogInformation("Database is reachable - migrations, seed and schema initialization completed.");
-                    break;
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    app.Logger.LogWarning(ex, "Database still unreachable; retrying schema initialization in 30s.");
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Application shutting down.
-        }
-    });
-}
-
-static async Task InitializeDatabaseAsync(IServiceProvider services)
-{
-    var db = services.GetRequiredService<MyDbContextDxy>();
-    var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseInit");
-
-    try
-    {
+        var db = scope.ServiceProvider.GetRequiredService<MyDbContextDxy>();
+        // Use EnsureCreatedAsync for SQLite to create the database schema
         if (db.Database.IsSqlite())
         {
             await db.Database.EnsureCreatedAsync();
         }
         else
         {
-            // MigrateAsync alone handles both a fresh database and an already-migrated
-            // one. The old Supabase-era "stamp legacy history" baseline is gone: it
-            // inserted InitialPostgres into __EFMigrationsHistory on every boot where
-            // AlertIncidents existed, which polluted the history on the local DB.
             await db.Database.MigrateAsync();
         }
+        await DynamicSchemaInitializer.EnsureSchemaAsync(scope.ServiceProvider);
+        await IdentitySeeder.SeedAsync(scope.ServiceProvider);
     }
     catch (Exception ex)
     {
-        logger.LogWarning(ex, "MigrateAsync could not apply pending migrations. Falling back to additive schema initialization.");
+        app.Logger.LogCritical(ex, "Database migration/seed failed.");
     }
-
-    // Idempotent additive schema upgrade for the IIoT platform (new columns on
-    // Devices/Sensors + the missing Sensors table on legacy databases).
-    await DynamicSchemaInitializer.EnsureSchemaAsync(services);
-
-    await IdentitySeeder.SeedAsync(services);
 }
 
-// Global safety net for unhandled exceptions
 app.UseExceptionHandler(errApp =>
 {
     errApp.Run(async context =>
     {
-        var feature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
-        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-        logger.LogError(feature?.Error, "Unhandled exception on {Path}", context.Request.Path);
-
         context.Response.ContentType = "application/json";
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         await context.Response.WriteAsJsonAsync(new { error = "Something went wrong. Please try again." });

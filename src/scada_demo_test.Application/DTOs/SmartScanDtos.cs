@@ -92,4 +92,4 @@ public record SmartScanResultDto(
     IReadOnlyList<int> SkippedSlaves,
     IReadOnlyList<int>? AmbiguousSlaves = null,
     IReadOnlyList<DuplicateSlaveIdConflictDto>? DuplicateIdConflicts = null,
-    IReadOnlyList<AlreadyInSystemSlaveDto>? AlreadyInSystemSensors = null);
+    IReadOnlyList<AlreadyInSystemSlaveDto>? AlreadyInSystemSlaves = null);

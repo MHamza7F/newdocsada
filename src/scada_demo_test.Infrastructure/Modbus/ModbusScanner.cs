@@ -249,24 +249,20 @@ public sealed class ModbusScanner : ISmartScanService
                     if (kd == ReadKind.Data && drv.ValidateDisproof(pd))
                     {
                         evidence.Add(new ScanWindowResponse(drv.DisproofWindow!, pd));
-                        var combined = evidence.SelectMany(e => e.Payload).ToArray();
-                        st.Candidates.Add(new CandidateEntry(
-                            new CandidateRank(ident.RegisterQuantity, 0, evidence.Sum(e => e.Payload.Any(b => b != 0) ? 1 : 0), 1, IndexOfDriver(famKey)),
-                            new ScannedCandidateDto(famKey, drv.DisplayName, ident.StartRegister, ident.RegisterQuantity,
-                                null, null, true, true),
-                            combined, evidence));
+                    var combined = evidence.SelectMany(e => e.Payload).ToArray();
+                    st.Candidates.Add(new CandidateEntry(
+                        new CandidateRank(ident.RegisterQuantity, 0, evidence.Sum(e => e.Payload.Any(b => b != 0) ? 1 : 0), 1, IndexOfDriver(famKey)),
+                        new ScannedCandidateDto(famKey, drv.DisplayName, ident.StartRegister, ident.RegisterQuantity,
+                            null, null, true, true),
+                        combined, evidence, IdentityProven: true));
                     }
                 }
             }
-
-            if (st.Candidates.Count == 0) { unknown++; continue; }
 
             var validCandidates = st.Candidates
                 .Where(c => DriverOf(c.Dto.DriverKey) is not null)
                 .OrderBy(c => c.Rank)
                 .ToList();
-
-            if (validCandidates.Count == 0) { unknown++; continue; }
 
             // Degenerate zero-match guard: a meter that serves unprogrammed 0x0000
             // registers lets SEVERAL driver families validate at once (0.0 %RH / 0.0 °C
@@ -274,20 +270,200 @@ public sealed class ModbusScanner : ISmartScanService
             // EM at slave 9 returned zeros at registers 0-1 and a phantom "Aosong" shadow
             // beat a REAL meter into a fake duplicate conflict). Evidence carrying at
             // least one non-zero byte is a real measurement; an all-zero candidate only
-            // wins when it is the sole match.
+            // wins when it is the sole match. A candidate whose identity register
+            // (DisproofWindow serial) proved NON-ZERO is a physically programmed meter
+            // that simply reads zero at rest (e.g. a Selec energy meter at 0 kW / 0 kWh)
+            // - it is never a shadow, so it always keeps its seat at the conflict table
+            // and a second real meter sharing one Slave ID can never hide behind a zero
+            // reading.
+            //
+            // Furthermore, an all-zero candidate on a DIFFERENT function code cannot be
+            // a shadow of a non-zero candidate on another FC (e.g. Kaifeng EM FC03 vs
+            // Selec energy FC04 at rest). They may be two distinct physical meters.
             var decisive = validCandidates;
             if (validCandidates.Count > 1)
             {
                 var strong = validCandidates
-                    .Where(c => c.Evidence.Any(w => w.Payload.Any(b => b != 0)))
+                    .Where(c => c.IdentityProven || c.Evidence.Any(w => w.Payload.Any(b => b != 0)))
                     .ToList();
-                if (strong.Count >= 1) decisive = strong;
+                if (strong.Count >= 1)
+                {
+                    // Check if any weak candidates share the SAME function code as a strong candidate.
+                    // Those are likely shadows and can be dropped.
+                    // Candidates on DIFFERENT function codes are independent physical meters.
+                    var fcOfStrong = new HashSet<byte>(
+                        strong.Select(c => DriverOf(c.Dto.DriverKey)).OfType<ISensorDriver>().Select(d => d.FunctionCode));
+                    var weakSameFc = validCandidates
+                        .Where(c => !strong.Contains(c) && DriverOf(c.Dto.DriverKey) is { } d && fcOfStrong.Contains(d.FunctionCode))
+                        .ToList();
+                    var weakDiffFc = validCandidates
+                        .Where(c => !strong.Contains(c) && DriverOf(c.Dto.DriverKey) is { } d && !fcOfStrong.Contains(d.FunctionCode))
+                        .ToList();
+
+                    // NEW FIX: If we have exactly 1 strong candidate with IDENTITY PROVEN
+                    // (non-zero serial/disproof), and weak candidates are just cross-FC bleed
+                    // (same meter responding on wrong FC), treat as UNIQUE - not conflict.
+                    // This happens when energy meters answer on both FC3 and FC4.
+                    bool hasIdentityProven = strong.Any(c => c.IdentityProven);
+                    bool allWeakAreCrossFcBleed = weakDiffFc.Count > 0 &&
+                        !weakDiffFc.Any(w => w.Evidence.Any(e => e.Payload.Any(b => b != 0)));
+
+                    if (hasIdentityProven && allWeakAreCrossFcBleed)
+                    {
+                        // Only 1 real meter - weak matches are just cross-FC bleed
+                        decisive = strong;
+                        _logger?.LogInformation(
+                            "scan slave {Slave}: 1 proven candidate with identity, weak matches are cross-FC bleed - treating as UNIQUE",
+                            slave);
+                    }
+                    else if (weakSameFc.Count > 0 && weakDiffFc.Count == 0)
+                    {
+                        // All weak candidates are same-FC shadows - drop them.
+                        decisive = strong;
+                    }
+                    else
+                    {
+                        // Keep everything - at least one weak candidate is on a different FC with real data
+                        decisive = validCandidates;
+                    }
+                }
             }
 
-            if (decisive.Count == 1)
+            // Address-level SECOND-RESPONDER WITNESSES: families that served real
+            // (non-zero) data on their own windows here but never completed a
+            // fingerprint. A proven candidate can never also be a witness (the witness
+            // is only recorded on the non-proven path), so the two sets are disjoint.
+            var witnesses = st.WitnessFamilies
+                .Where(f => DriverOf(f) is not null)
+                .OrderBy(IndexOfDriver)
+                .ToList();
+
+            int responders = decisive.Count + witnesses.Count;
+            // If a cross-FC probe returned non-zero Data, another physical meter exists on this
+            // Slave ID even though its own ident read failed (e.g. Selec FC04@42 WindowInvalid).
+            // Treat it as a second responder so the real meter doesn't walk into the Found Box alone.
+            //
+            // FALSE ALARM DETECTION: if the cross-FC signal came from a driver whose OWN ident
+            // returned ALL ZEROS (e.g. AOSONG FC3@0 = zeros), then the cross-FC "data" on the
+            // other function code is almost certainly the PROVEN candidate's FC3 response
+            // bleeding into the probe — NOT a second meter. For example:
+            //   - AOSONG (FC3@0) reads zeros → ident fails fingerprint
+            //   - AOSONG cross-FC probe (FC4@0) returns non-zero = KAIFENG's FC3 data leaked
+            //   - KAIFENG (FC3@90) reads non-zero → fingerprint succeeds
+            // This is ONE meter (KAIFENG), not two. Do NOT increment responders.
+            //
+            // GENUINE case: the cross-FC source driver has non-zero ident (real meter on that FC),
+            // or the cross-FC source is a driver with failed ident (e.g. Selec FC04@42 WindowInvalid
+            // but FC03@42 served data = a real Selec meter sharing the address with another device).
+            string? crossFcSource = st.CrossFcSourceDriver;
+            bool isCrossFcFalseAlarm = crossFcSource != null && st.ZeroIdentCrossFcDrivers.Contains(crossFcSource);
+            if (st.CrossFcDataDetected && !isCrossFcFalseAlarm)
+            {
+                responders++;
+                _logger?.LogInformation(
+                    "scan slave {Slave}: cross-FC data detected - incrementing responders to {Responders}",
+                    slave, responders);
+            }
+            else if (st.CrossFcDataDetected && isCrossFcFalseAlarm)
+            {
+                _logger?.LogInformation(
+                    "scan slave {Slave}: cross-FC data detected from {Driver} (zero-ident bleed) - NOT incrementing responders",
+                    slave, crossFcSource);
+            }
+            if (responders == 0) { unknown++; continue; }
+
+            if (responders >= 2)
+            {
+                // Check if this is a FALSE POSITIVE: single meter responding on multiple FCs
+                // If we have only 1 proven candidate and the "extra" responders are just
+                // cross-FC bleed (same meter answering on FC3 and FC4), don't treat as conflict.
+                bool isFalsePositive = decisive.Count == 1 && witnesses.Count == 0 && st.CrossFcDataDetected && isCrossFcFalseAlarm;
+
+                if (!isFalsePositive)
+                {
+                    // GENUINE DUPLICATE CONFLICT: >= 2 distinct physical meter families responded
+                    // Independently on the SAME slave address.
+                    // Emit one frame per responder so Guard 2 blocks the WHOLE slave from the
+                    // Found Box and the operator gets the duplicate-ID alert.
+                    var conflictDrivers = new List<string>(decisive.Select(c => c.Dto.DriverKey));
+                    conflictDrivers.AddRange(witnesses);
+                    if (st.CrossFcDataDetected && !decisive.Any())
+                        conflictDrivers.Add("(cross-FC second responder)");
+                    _logger?.LogWarning(
+                        "scan slave {Slave}: conflicting discovery profiles ({Count}): {Meters}",
+                        slave, responders, string.Join(", ", conflictDrivers));
+
+                    foreach (var cand in decisive)
+                    {
+                        var drv = DriverOf(cand.Dto.DriverKey)!;
+                        incomingRawResponses.Add(new RawScanResponse
+                        {
+                            SlaveId = (byte)slave,
+                            Payload = cand.RawPayload,
+                            Evidence = cand.Evidence,
+                            IsSuccess = true,
+                            HintedProfile = CheckpostRouter.ResolveProfileByDriverKey(drv.DriverKey),
+                            FunctionCode = drv.FunctionCode,
+                            StartRegister = cand.Dto.StartRegister,
+                            RegisterQuantity = cand.Dto.RegisterQuantity,
+                            ProofServed = cand.Dto.ProofServed,
+                            ModelName = drv.DisplayName
+                        });
+                    }
+
+                    // When cross-FC data is detected but no witness family was recorded,
+                    // emit a synthetic frame so Guard 2 sees >= 2 frames for this slave
+                    // and blocks it. Without this, a single decisive candidate + cross-FC
+                    // data would produce only 1 frame and slip through as "unique".
+                    // EXCEPTION: skip when cross-FC signal is a false alarm from zero-ident bleed.
+                    // NEW: Also skip when there's exactly 1 proven candidate and the cross-FC
+                    //      source is a DIFFERENT driver (means same meter responding on multiple FCs).
+                    bool skipSyntheticFrame = isCrossFcFalseAlarm ||
+                        (decisive.Count == 1 && crossFcSource != null &&
+                         !string.Equals(decisive[0].Dto.DriverKey, crossFcSource, StringComparison.OrdinalIgnoreCase));
+                    if (st.CrossFcDataDetected && witnesses.Count == 0 && decisive.Count > 0 && !skipSyntheticFrame)
+                    {
+                        // Use the first decisive candidate's FC to create a distinct frame
+                        var drv = DriverOf(decisive[0].Dto.DriverKey)!;
+                        var otherFc = (byte)(drv.FunctionCode == 0x03 ? 0x04 : 0x03);
+                        incomingRawResponses.Add(new RawScanResponse
+                        {
+                            SlaveId = (byte)slave,
+                            Payload = Array.Empty<byte>(),
+                            Evidence = Array.Empty<ScanWindowResponse>(),
+                            IsSuccess = true,
+                            HintedProfile = CheckpostRouter.ResolveProfileByDriverKey(drv.DriverKey),
+                            FunctionCode = otherFc,
+                            StartRegister = drv.StartRegister,
+                            RegisterQuantity = drv.RegisterQuantity,
+                            ProofServed = false,
+                            ModelName = drv.DisplayName
+                        });
+                    }
+
+                    foreach (var famKey in witnesses)
+                    {
+                        var drv = DriverOf(famKey)!;
+                        incomingRawResponses.Add(new RawScanResponse
+                        {
+                            SlaveId = (byte)slave,
+                            Payload = Array.Empty<byte>(),
+                            Evidence = Array.Empty<ScanWindowResponse>(),
+                            IsSuccess = true,
+                            HintedProfile = CheckpostRouter.ResolveProfileByDriverKey(drv.DriverKey),
+                            FunctionCode = drv.FunctionCode,
+                            StartRegister = drv.StartRegister,
+                            RegisterQuantity = drv.RegisterQuantity,
+                            ProofServed = false,
+                            ModelName = drv.DisplayName
+                        });
+                    }
+                }
+            }
+            else if (decisive.Count == 1)
             {
                 // UNIQUE PHYSICAL METER: exactly one driver verified for this slave address
-                var winner = validCandidates[0];
+                var winner = decisive[0];
                 var drv = DriverOf(winner.Dto.DriverKey)!;
                 incomingRawResponses.Add(new RawScanResponse
                 {
@@ -305,31 +481,12 @@ public sealed class ModbusScanner : ISmartScanService
             }
             else
             {
-                // GENUINE DUPLICATE CONFLICT: multiple distinct physical meter families responded
-                // independently on the SAME slave address (e.g. two REAL meters racing on one ID).
-                // Emit the colliding (non-shadowed) candidates so Guard 2 blocks the slave from the
-                // Found Box and the operator gets the duplicate-ID alert.
+                // A single partial responder with no verified neighbour: report it as an
+                // unknown responder - it never enters the Found Box on partial evidence.
+                unknown++;
                 _logger?.LogWarning(
-                    "scan slave {Slave}: conflicting discovery profiles ({Count}): {Meters}",
-                    slave, decisive.Count, string.Join(", ", decisive.Select(c => c.Dto.DriverKey)));
-
-                foreach (var cand in decisive)
-                {
-                    var drv = DriverOf(cand.Dto.DriverKey)!;
-                    incomingRawResponses.Add(new RawScanResponse
-                    {
-                        SlaveId = (byte)slave,
-                        Payload = cand.RawPayload,
-                        Evidence = cand.Evidence,
-                        IsSuccess = true,
-                        HintedProfile = CheckpostRouter.ResolveProfileByDriverKey(drv.DriverKey),
-                        FunctionCode = drv.FunctionCode,
-                        StartRegister = cand.Dto.StartRegister,
-                        RegisterQuantity = cand.Dto.RegisterQuantity,
-                        ProofServed = cand.Dto.ProofServed,
-                        ModelName = drv.DisplayName
-                    });
-                }
+                    "scan slave {Slave}: {Meters} answered with real data but no family completed its fingerprint; reported as unknown.",
+                    slave, string.Join(", ", witnesses));
             }
         }
 
@@ -476,21 +633,29 @@ public sealed class ModbusScanner : ISmartScanService
         // Slow serial->WiFi bridge auto-retry: a real meter's reply over the USR-W610
         // can arrive AFTER the operator's probe timeout (measured live: the Aosong at
         // slave 3 answered within 1.5 s but missed the 200 ms probe three times, so the
-        // scan showed 0 meters). On the FIRST read timeout of an identification window,
+        // scan showed 0 meters). On the FIRST read timeout of ANY window of this slave,
         // retry that read once at 3x and keep the escalated timeout for the rest of this
         // slave's reads. A retry that also fails resets the timeout so a genuinely silent
-        // bus never gets slowed down.
+        // bus never gets slowed down. Every window shares this helper so a slow bridge
+        // cannot silently truncate a real meter's evidence (an incomplete evidence set
+        // used to fail the fingerprint and let a second meter on the SAME Slave ID walk
+        // alone into the Found Box).
         int effectiveTimeout = probeTimeout;
+        bool escalated = false;
 
-        async Task<(ReadKind Kind, byte[] Payload)> ReadIdentAsync(SensorReadWindow window)
+        async Task<(ReadKind Kind, byte[] Payload)> ReadWindowAsync(SensorReadWindow window)
         {
             var (kind0, payload0) = await ReadBlockAsync(sessionHolder, slave, window, effectiveTimeout, ct);
-            if (kind0 == ReadKind.Timeout && effectiveTimeout == probeTimeout)
+            if (kind0 == ReadKind.Timeout && !escalated)
             {
+                escalated = true;
                 effectiveTimeout = Math.Min(probeTimeout * 3, MaxProbeTimeoutMs);
                 (kind0, payload0) = await ReadBlockAsync(sessionHolder, slave, window, effectiveTimeout, ct);
                 if (kind0 is not (ReadKind.Data or ReadKind.WindowInvalid))
-                    effectiveTimeout = probeTimeout; // genuinely silent: keep the sweep fast
+                {
+                    // Retry also timed out - slave is silent. Keep escalated=true so no more retries.
+                    effectiveTimeout = probeTimeout;
+                }
             }
             return (kind0, payload0);
         }
@@ -503,14 +668,16 @@ public sealed class ModbusScanner : ISmartScanService
             var ident = windows[0];
             bool identityProven = false;
 
-            var (kind, payload) = await ReadIdentAsync(ident);
+            _logger?.LogInformation("scan slave {Slave}: probing {Driver} FC{Fc}@{Start}", slave, driver.DriverKey, ident.FunctionCode, ident.StartRegister);
+            var (kind, payload) = await ReadWindowAsync(ident);
+            _logger?.LogInformation("scan slave {Slave}: {Driver} ident kind={Kind} payloadLen={Len} payload={Payload}", slave, driver.DriverKey, kind, payload?.Length ?? 0, payload != null ? string.Join("", payload.Select(b => b.ToString("X2"))) : "null");
             if (kind == ReadKind.Unsafe || kind == ReadKind.ConnectFailed)
             {
                 result.ConnectionUnsafe = true;
                 return result;
             }
             if (kind == ReadKind.WindowInvalid) result.GotData = true;
-            if (kind != ReadKind.Data)
+            if (kind != ReadKind.Data || payload is null)
             {
                 // Second-chance identity: a meter that legitimately reads 0 at its ident
                 // window (Selec kW/kWh with no load) can MISS the probe on a slow serial
@@ -521,10 +688,18 @@ public sealed class ModbusScanner : ISmartScanService
                 // its serial is 0x0000).
                 if (driver.DisproofWindow is { } lateWin)
                 {
-                    var (kl, pl) = await ReadBlockAsync(sessionHolder, slave, lateWin, effectiveTimeout, ct);
+                    _logger?.LogInformation("scan slave {Slave}: {Driver} checking disproof @{Start}", slave, driver.DriverKey, lateWin.StartRegister);
+                    var (kl, pl) = await ReadWindowAsync(lateWin);
                     if (kl is ReadKind.Unsafe or ReadKind.ConnectFailed) { result.ConnectionUnsafe = true; return result; }
                     if (kl == ReadKind.Data && driver.ValidateDisproof(pl))
+                    {
+                        _logger?.LogInformation("scan slave {Slave}: {Driver} DISPROOF PROVEN serial={Serial}", slave, driver.DriverKey, pl != null ? string.Join("", pl.Select(b => b.ToString("X2"))) : "null");
                         result.IdentityAckFamilies.Add(driver.DriverKey);
+                    }
+                    else
+                    {
+                        _logger?.LogInformation("scan slave {Slave}: {Driver} disproof kind={Kind} validated={Validated} payload={Payload}", slave, driver.DriverKey, kl, kl == ReadKind.Data && driver.ValidateDisproof(pl), pl != null ? string.Join("", pl.Select(b => b.ToString("X2"))) : "null");
+                    }
                 }
                 continue;
             }
@@ -543,7 +718,7 @@ public sealed class ModbusScanner : ISmartScanService
             // classic out-of-map phantom check so the USR-W610 filler stays unknown.
             if (driver.DisproofWindow is { } disproofWin)
             {
-                var (kd, pd) = await ReadBlockAsync(sessionHolder, slave, disproofWin, effectiveTimeout, ct);
+                var (kd, pd) = await ReadWindowAsync(disproofWin);
                 if (kd is ReadKind.Unsafe or ReadKind.ConnectFailed) { result.ConnectionUnsafe = true; return result; }
                 if (kd == ReadKind.Data && driver.ValidateDisproof(pd))
                 {
@@ -577,19 +752,29 @@ public sealed class ModbusScanner : ISmartScanService
                     goto evidenceCollection;
                 }
                 var otherFc = (byte)(ident.FunctionCode == 0x03 ? 0x04 : 0x03);
-                var (kk, _) = await ReadBlockAsync(sessionHolder, slave, new SensorReadWindow(otherFc, ident.StartRegister, ident.RegisterQuantity), effectiveTimeout, ct);
+                var (kk, kPayload) = await ReadWindowAsync(new SensorReadWindow(otherFc, ident.StartRegister, ident.RegisterQuantity));
                 if (kk is ReadKind.Unsafe or ReadKind.ConnectFailed) { result.ConnectionUnsafe = true; return result; }
                 _logger?.LogInformation(
-                    "scan slave {Slave}: cross-FC probe {Fc}@{Start} for {Driver} -> {Kind}",
-                    slave, otherFc, ident.StartRegister, driver.DriverKey, kk);
-                if (kk == ReadKind.Data)
+                    "scan slave {Slave}: cross-FC probe {Fc}@{Start} for {Driver} -> {Kind} payload={Payload}",
+                    slave, otherFc, ident.StartRegister, driver.DriverKey, kk, kPayload != null ? string.Join("", kPayload.Select(b => b.ToString("X2"))) : "null");
+                if (kk == ReadKind.Data && kPayload is not null && AnyNonZero(kPayload))
                 {
-                    continue; // foreign FC served: this family cannot own the address
+                    result.CrossFcDataDetected = true;
+                    result.CrossFcSourceDriver = driver.DriverKey;
+                    // If this driver's OWN ident was all zeros, mark it as a false-alarm source.
+                    // The cross-FC signal is the proven candidate's FC3 bleed, not a second meter.
+                    if (kind == ReadKind.Data && !AnyNonZero(payload))
+                        result.ZeroIdentCrossFcDrivers.Add(driver.DriverKey);
+                    continue; // foreign FC served with non-zero data: this family cannot own the address
                 }
             }
 
             evidenceCollection:
             var evidence = new List<ScanWindowResponse> { new(ident, payload) };
+            // At least one OWN window carrying real (non-zero) data is physical evidence
+            // that a device of this family answered at THIS Slave ID - even when the
+            // evidence set never becomes complete enough to fingerprint.
+            bool ownNonZero = AnyNonZero(payload);
 
             var combinedBytes = new List<byte>(payload.Length * windows.Count);
             combinedBytes.AddRange(payload);
@@ -598,11 +783,12 @@ public sealed class ModbusScanner : ISmartScanService
             for (int wi = 1; wi < windows.Count; wi++)
             {
                 await Task.Delay(InterWindowDelayMs, ct);
-                var (k2, pl2) = await ReadBlockAsync(sessionHolder, slave, windows[wi], effectiveTimeout, ct);
+                var (k2, pl2) = await ReadWindowAsync(windows[wi]);
                 if (k2 is ReadKind.Unsafe or ReadKind.ConnectFailed) { result.ConnectionUnsafe = true; return result; }
                 if (k2 != ReadKind.Data) continue;
                 combinedBytes.AddRange(pl2);
                 evidence.Add(new ScanWindowResponse(windows[wi], pl2));
+                if (AnyNonZero(pl2)) ownNonZero = true;
 
             }
 
@@ -620,7 +806,7 @@ public sealed class ModbusScanner : ISmartScanService
                     {
                         evidence.Add(new ScanWindowResponse(proofWin, plp));
                         proofServed = true;
-                        if (AnyNonZero(plp)) proofHasData = true;
+                        if (AnyNonZero(plp)) { proofHasData = true; ownNonZero = true; }
                     }
                 }
             }
@@ -628,15 +814,46 @@ public sealed class ModbusScanner : ISmartScanService
             if (driver.CorroborationWindow is null)
             {
                 await Task.Delay(InterWindowDelayMs, ct);
-                var (repeatKind, repeatPayload) = await ReadBlockAsync(sessionHolder, slave, ident, effectiveTimeout, ct);
-                if (repeatKind == ReadKind.Data) evidence.Add(new ScanWindowResponse(ident, repeatPayload));
+                var (repeatKind, repeatPayload) = await ReadWindowAsync(ident);
+                if (repeatKind == ReadKind.Data)
+                {
+                    evidence.Add(new ScanWindowResponse(ident, repeatPayload));
+                    if (AnyNonZero(repeatPayload)) ownNonZero = true;
+                }
             }
 
             bool isProven = CheckpostFingerprintEngine.Matches(driver, evidence);
-            if (!isProven) continue;
+            if (!isProven)
+            {
+                // PARTIAL RESPONDER WITNESS: this family served REAL data on its own
+                // windows but a window never came back (slow bridge, or - verified live -
+                // a second physical meter sharing this Slave ID that only races some of
+                // the requests). The witness is carried to the address-level decision so
+                // two responders on one ID can never let exactly one of them walk into
+                // the Found Box. All-zero answers are NOT witnesses: a gateway
+                // echo/zero-filler serves zeros on every family's window.
+                // NOTE: A driver whose OWN ident returned zeros must not be counted as a witness just because
+                // its cross-FC probe returned data — that data often comes from a
+                // DIFFERENT meter family sharing the same Slave ID (e.g. AOSONG FC3@0
+                // zeros + cross-FC FC4@0 non-zero means KAIFENG is answering on FC3,
+                // not a second FC4 meter). The cross-FC flag is still used at the
+                // address-level decision (responders++ below) for meters whose OWN
+                // ident window failed but whose cross-FC probe proved a second meter
+                // exists on a different function code.
+                if (ownNonZero)
+                {
+                    result.WitnessFamilies.Add(driver.DriverKey);
+                    _logger?.LogInformation(
+                        "scan slave {Slave}: {Driver} served real data but did not complete its fingerprint - counted as a second-responder witness",
+                        slave, driver.DriverKey);
+                }
+                continue;
+            }
 
             result.AcceptedFamilies.Add(driver.DriverKey);
             if (isProven) result.ProvenFamilies.Add(driver.DriverKey);
+
+            _logger?.LogInformation("scan slave {Slave}: {Driver} fingerprint={Proven} evidenceCount={Count}", slave, driver.DriverKey, isProven, evidence.Count);
 
             var rank = new CandidateRank(ident.RegisterQuantity, 0, 0, 0, d);
 
@@ -650,7 +867,7 @@ public sealed class ModbusScanner : ISmartScanService
                 isProven,
                 false);
 
-            result.Candidates.Add(new CandidateEntry(rank, dto, combinedBytes.ToArray(), evidence.ToArray()));
+            result.Candidates.Add(new CandidateEntry(rank, dto, combinedBytes.ToArray(), evidence.ToArray(), identityProven));
 
             bool strong = proofHasData;
             _logger?.LogDebug(
@@ -905,6 +1122,10 @@ public sealed class ModbusScanner : ISmartScanService
         foreach (var fam in probe.AcceptedFamilies) st.AcceptedFamilies.Add(fam);
         foreach (var fam in probe.ProvenFamilies) st.ProvenFamilies.Add(fam);
         foreach (var fam in probe.IdentityAckFamilies) st.IdentityAckFamilies.Add(fam);
+        foreach (var fam in probe.WitnessFamilies) st.WitnessFamilies.Add(fam);
+        st.CrossFcDataDetected = probe.CrossFcDataDetected;
+        st.CrossFcSourceDriver = probe.CrossFcSourceDriver;
+        foreach (var fam in probe.ZeroIdentCrossFcDrivers) st.ZeroIdentCrossFcDrivers.Add(fam);
         foreach (var (key, votes) in probe.StrongVotes)
             st.Votes[key] = st.Votes.GetValueOrDefault(key) + votes;
 
@@ -941,7 +1162,7 @@ public sealed class ModbusScanner : ISmartScanService
     }
 
     private readonly record struct CandidateEntry(CandidateRank Rank, ScannedCandidateDto Dto, byte[] RawPayload,
-        IReadOnlyList<ScanWindowResponse> Evidence);
+        IReadOnlyList<ScanWindowResponse> Evidence, bool IdentityProven = false);
 
     private sealed class SlaveProbe
     {
@@ -958,6 +1179,28 @@ public sealed class ModbusScanner : ISmartScanService
         // reads 0, e.g. Selec kW/kWh at rest). Consumed by the merge step so the
         // family still lands in the Found Box with live values read on a retry.
         public readonly HashSet<string> IdentityAckFamilies = new(StringComparer.OrdinalIgnoreCase);
+
+        // Families that served REAL (non-zero) data on their own windows but never
+        // completed a fingerprint. Physically a second responder at this Slave ID -
+        // carried to the address-level decision so it can never hide behind the meter
+        // that did finish its fingerprint.
+        public readonly HashSet<string> WitnessFamilies = new(StringComparer.OrdinalIgnoreCase);
+
+        // True when ANY driver's cross-FC probe returned non-zero Data. This means
+        // another physical meter on a different FC shares this Slave ID, even if that
+        // meter's own ident read failed (e.g. Selec at rest returning WindowInvalid).
+        public bool CrossFcDataDetected;
+
+        // Tracks which driver's cross-FC probe SET the CrossFcDataDetected flag.
+        // Used to detect false alarms: if a zero-ident driver's cross-FC probe detected
+        // data, it's likely the proven candidate's FC3 response bleeding into the probe
+        // (e.g. AOSONG FC3@0 zeros + cross-FC FC4@0 non-zero = KAIFENG's FC3 data).
+        public string? CrossFcSourceDriver;
+
+        // Drivers whose ident read returned ALL ZEROS but whose cross-FC probe detected
+        // non-zero data. These are FALSE ALARM sources — the cross-FC signal is the
+        // proven candidate's FC3 response bleeding, not a second meter.
+        public readonly HashSet<string> ZeroIdentCrossFcDrivers = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private sealed class AddressState
@@ -969,5 +1212,9 @@ public sealed class ModbusScanner : ISmartScanService
         public readonly HashSet<string> AcceptedFamilies = new(StringComparer.OrdinalIgnoreCase);
         public readonly HashSet<string> ProvenFamilies = new(StringComparer.OrdinalIgnoreCase);
         public readonly HashSet<string> IdentityAckFamilies = new(StringComparer.OrdinalIgnoreCase);
+        public readonly HashSet<string> WitnessFamilies = new(StringComparer.OrdinalIgnoreCase);
+        public bool CrossFcDataDetected;
+        public string? CrossFcSourceDriver;
+        public readonly HashSet<string> ZeroIdentCrossFcDrivers = new(StringComparer.OrdinalIgnoreCase);
     }
 }

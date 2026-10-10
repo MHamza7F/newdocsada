@@ -170,4 +170,29 @@ internal static class Fixtures
             StartRegister = start ?? source.StartRegister, RegisterQuantity = source.RegisterQuantity,
             HintedProfile = hint ?? source.HintedProfile
         };
+
+    /// <summary>
+    /// A Selec energy meter at REST: every measurement window reads 0x0000 (0 kW,
+    /// 0 kWh, zero proof block) but the meter's programmed serial number in its
+    /// DisproofWindow is non-zero - the physical proof that a real (idle) meter,
+    /// not a gateway echo, owns the reads.
+    /// </summary>
+    public static RawScanResponse ZeroButProgrammedSelec(byte id)
+    {
+        var driver = SensorDriverCatalog.RequireByKey("SELEC_POWER_METER");
+        var evidence = driver.ReadWindows
+            .Select(w => new ScanWindowResponse(w, new byte[w.RegisterQuantity * 2]))
+            .ToList();
+        var proof = driver.CorroborationWindow!;
+        evidence.Add(new ScanWindowResponse(proof, new byte[proof.RegisterQuantity * 2]));
+        evidence.Add(new ScanWindowResponse(driver.DisproofWindow!, new byte[] { 0x00, 0x6E, 0x7E, 0x19 }));
+        var payload = driver.ReadWindows
+            .SelectMany(w => evidence.First(e => e.Window == w).Payload).ToArray();
+        return new RawScanResponse
+        {
+            SlaveId = id, IsSuccess = true, Payload = payload, Evidence = evidence,
+            FunctionCode = driver.FunctionCode, StartRegister = driver.StartRegister,
+            RegisterQuantity = driver.RegisterQuantity, ModelName = driver.DisplayName
+        };
+    }
 }

@@ -54,7 +54,7 @@ public class AlertsController : ControllerBase
     }
 
     [HttpDelete("incidents/{id}")]
-    [Authorize(Policy = $"Action:{AppPermissions.AlertsView}")]
+    [Authorize(Policy = $"Action:{AppPermissions.AlertsConfigure}")]
     public async Task<IActionResult> DeleteIncident(Guid id)
     {
         var incident = await _db.AlertIncidents.FindAsync(id);
